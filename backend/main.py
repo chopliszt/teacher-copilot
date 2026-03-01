@@ -6,21 +6,33 @@ Core API server for the TeacherPilot application, providing endpoints
 for priority management, classroom data, and AI-powered assistance.
 """
 
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 import os
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from context_builder import build_context  # noqa: F401 (re-exported for tests)
 from mistral_client import call_mistral
 from schedule_day import get_current_schedule_day, set_schedule_day
+from database import init_db, get_db
+from email_processor import EmailBatch, process_batch
 
 # Load environment variables
 load_dotenv()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()   # create tables on startup (no-op if they already exist)
+    yield
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -29,7 +41,8 @@ app = FastAPI(
     version="0.1.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json"
+    openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
 # Configure CORS
@@ -360,6 +373,26 @@ async def post_schedule_day(body: Dict[str, Any]) -> Dict[str, Any]:
 
     set_schedule_day(date_str, int(day))
     return {"date": date_str, "day": int(day), "updated": True}
+
+
+@app.post("/api/emails")
+async def receive_emails(
+    batch: EmailBatch,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Webhook receiver for n8n Gmail batches.
+
+    n8n POSTs a JSON array of unread messages every 15 minutes.
+    One Mistral call classifies the entire batch into:
+      - action_required  → saved to important_emails
+      - absence          → saved to absences (student + group extracted)
+      - weekly_schedule  → saved to important_emails for separate processing
+      - ignore           → discarded
+
+    Idempotent — already-stored email IDs are silently skipped.
+    """
+    return await process_batch(batch, db)
 
 
 if __name__ == "__main__":

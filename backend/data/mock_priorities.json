@@ -1,0 +1,68 @@
+{
+  "urgent_tasks": [
+    {
+      "id": "urgent_1",
+      "title": "Grade 9A2 Digital Design projects due today",
+      "description": "Final projects for 9A2 need to be graded and feedback provided before end of day",
+      "priority": "high",
+      "due_date": "2026-01-15",
+      "estimated_time": "2 hours",
+      "related_class": "9A2",
+      "related_subject": "Diseño Digital"
+    },
+    {
+      "id": "urgent_2",
+      "title": "Parent-teacher conference request from 8A1 parent",
+      "description": "Mrs. Rodriguez requested a meeting about Juan's progress in Digital Design",
+      "priority": "high",
+      "due_date": "2026-01-16",
+      "estimated_time": "30 minutes",
+      "related_class": "8A1",
+      "related_subject": "Digital Design"
+    }
+  ],
+  "important_tasks": [
+    {
+      "id": "important_1",
+      "title": "Prepare lesson plan for 10A1 Diseño Digital",
+      "description": "Create interactive lesson on advanced design principles with hands-on exercises",
+      "priority": "medium",
+      "due_date": "2026-01-18",
+      "estimated_time": "1 hour",
+      "related_class": "10A1",
+      "related_subject": "Diseño Digital"
+    },
+    {
+      "id": "important_2",
+      "title": "Update classroom materials inventory",
+      "description": "Check and document current stock of design software licenses and hardware",
+      "priority": "medium",
+      "due_date": "2026-01-20",
+      "estimated_time": "45 minutes",
+      "related_class": "All",
+      "related_subject": "Administrative"
+    }
+  ],
+  "routine_tasks": [
+    {
+      "id": "routine_1",
+      "title": "Daily homeroom attendance for 9A2",
+      "description": "Take and record attendance for homeroom class",
+      "priority": "low",
+      "due_date": "2026-01-15",
+      "estimated_time": "5 minutes",
+      "related_class": "9A2",
+      "related_subject": "Homeroom"
+    },
+    {
+      "id": "routine_2",
+      "title": "Review student submissions from 5B1",
+      "description": "Quick review of homework assignments from yesterday's Digital Design class",
+      "priority": "low",
+      "due_date": "2026-01-15",
+      "estimated_time": "20 minutes",
+      "related_class": "5B1",
+      "related_subject": "Digital Design"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "emails": [
+    {
+      "id": "msg_weekly_001",
+      "threadId": "thread_weekly_001",
+      "snippet": "Buenas tardes. Adjunto anuncios semanales. En caso de necesitar agregar información, me lo hacen saber por este medio. Saludos. Feliz fin de semana.",
+      "payload": { "mimeType": "text/plain" },
+      "internalDate": "1740826800000",
+      "labels": [],
+      "Subject": "Documento compartido con usted: \"Anuncios semanales #6 2-6 de marzo\"",
+      "From": "Coordinación GVS (via Google Docs) <drive-shares-noreply@google.com>",
+      "To": "c.infante@goldenvalley.ed.cr"
+    },
+    {
+      "id": "msg_absence_001",
+      "threadId": "thread_absence_001",
+      "snippet": "Student Excused Absence - 6B1 - Maria Gomez. Estimada C. Infante, le informamos que la estudiante Maria Gomez del grupo 6B1 no asistirá el día de hoy por motivos de salud. Queda justificada su ausencia.",
+      "payload": { "mimeType": "text/plain" },
+      "internalDate": "1740830400000",
+      "labels": [],
+      "Subject": "Fwd: Justificación",
+      "From": "secretaria@goldenvalley.ed.cr",
+      "To": "c.infante@goldenvalley.ed.cr"
+    },
+    {
+      "id": "msg_action_001",
+      "threadId": "thread_action_001",
+      "snippet": "You have been invited to Design Cat 1 — Professional Development in Digital Design. Please create your profile and log in at designcat.com/register before March 15. This course is required for all Digital Design faculty.",
+      "payload": { "mimeType": "text/plain" },
+      "internalDate": "1740834000000",
+      "labels": [],
+      "Subject": "Design Cat 1 — Complete your registration before March 15",
+      "From": "noreply@designcat.com",
+      "To": "c.infante@goldenvalley.ed.cr"
+    },
+    {
+      "id": "msg_ignore_001",
+      "threadId": "thread_ignore_001",
+      "snippet": "You have 3 unread messages while you were away. Open Google Chat to catch up.",
+      "payload": { "mimeType": "text/html" },
+      "internalDate": "1740837600000",
+      "labels": [],
+      "Subject": "3 unread messages in Google Chat",
+      "From": "Google Chat <chat-noreply@google.com>",
+      "To": "c.infante@goldenvalley.ed.cr"
+    }
+  ]
+}

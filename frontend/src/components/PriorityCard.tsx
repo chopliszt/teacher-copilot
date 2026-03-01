@@ -28,9 +28,10 @@ const PRIORITY_STYLES: Record<PriorityLevel, PriorityStyles> = {
 interface PriorityCardProps {
   priority: PriorityItem;
   rank: number;
+  onStart: () => void;
 }
 
-export function PriorityCard({ priority, rank }: PriorityCardProps) {
+export function PriorityCard({ priority, rank, onStart }: PriorityCardProps) {
   const styles = PRIORITY_STYLES[priority.priority];
   const dueDate = formatDueDate(priority.due_date);
   const isUrgentDue = dueDate.isOverdue || dueDate.isDueToday;
@@ -81,6 +82,7 @@ export function PriorityCard({ priority, rank }: PriorityCardProps) {
           {dueDate.label}
         </span>
         <button
+          onClick={onStart}
           className="text-xs font-semibold text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded-lg hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all"
           aria-label={`Start task: ${priority.title}`}
         >

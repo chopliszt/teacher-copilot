@@ -1,0 +1,27 @@
+services:
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env                          # provides MISTRAL_API_KEY etc.
+    volumes:
+      - ./backend/data:/app/data            # SQLite DB + schedule_state.json persist here
+    # Not exposed to the host — frontend nginx reaches it as http://backend:8000
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:8080:80"                # local access: http://localhost:8080
+    # nginx proxies /api/* → backend:8000 internally
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - frontend

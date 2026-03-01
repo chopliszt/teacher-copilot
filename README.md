@@ -117,6 +117,21 @@ Three AI-ranked cards shown at a time — no scrolling, no overwhelm. Each card 
 ### Marimba Voice Companion
 Always-present fox avatar with four visual states (idle, listening, thinking, speaking). Voice input via Voxtral Realtime; spoken responses via ElevenLabs with a consistent voice persona. The mic button is always one tap away.
 
+### Data Connectors
+
+TeacherPilot pulls from the real tools the teacher already uses. No new habits required.
+
+| Source | What lives there | Connector status |
+|---|---|---|
+| **Google Sheets** | Full student list (272 students, 13 groups) | Stub — in progress |
+| **Google Sheets** | Student email passwords (managed by school) | Stub — in progress |
+| **Toddle** | Grades, assignments, and submission status | Stub — in progress |
+| **Gmail** | Parent emails, coordinator requests, communications | Stub — in progress |
+| **Google Calendar** | School events, meetings, deadlines | Stub — in progress |
+| **Database / Airtable / Sheets** | History of completed tasks (audit trail) | Architecture TBD |
+
+The connector layer is designed so each source is independent — a failure in one (e.g. Toddle is slow) doesn't block the others. When a connector is unavailable, Marimba falls back to the last known data and flags it.
+
 ### Rolling Schedule Day
 The current day in the 6-day rotation is calculated from a persistent state file, correctly skipping weekends and holidays. The UI shows it as a quiet `Day N` label next to today's classes. On weekends it reads `Weekend` and the empty state says *"Enjoy the rest."*
 
@@ -136,9 +151,13 @@ Email tasks open a triaged view with AI-generated summaries and urgency tags. Ur
 | Styling | Tailwind CSS, Radix UI, class-variance-authority |
 | Data fetching | TanStack React Query, Axios, Zod |
 | Backend | Python 3.11, FastAPI, Uvicorn |
+| Database | SQLite via SQLAlchemy (emails + absences buffer) |
 | AI (reasoning) | Mistral Large 3 (`mistral-large-latest`) |
+| AI (triage) | Mistral Small (`mistral-small-latest`) — batch email classifier |
 | AI (voice input) | Voxtral Realtime *(integration in progress)* |
 | AI (voice output) | ElevenLabs *(integration in progress)* |
+| Deployment | Docker Compose, Cloudflare Tunnel |
+| Automation | n8n.cloud (Gmail polling, Google Docs webhooks) |
 
 ---
 
@@ -146,29 +165,39 @@ Email tasks open a triaged view with AI-generated summaries and urgency tags. Ur
 
 ```
 teacher-pilot-mistral/
+├── docker-compose.yml           # One command to run everything
+├── .env.example                 # Copy to .env and fill in secrets
 ├── backend/
 │   ├── main.py                  # FastAPI app — endpoints only
 │   ├── context_builder.py       # Builds the Mistral prompt
 │   ├── mistral_client.py        # Makes the Mistral API call
 │   ├── schedule_day.py          # Rolling 6-day schedule calculator
+│   ├── email_processor.py       # Pydantic models + batch triage logic
+│   ├── database.py              # SQLAlchemy setup (SQLite)
+│   ├── Dockerfile
 │   ├── requirements.txt
-│   ├── .env.example
 │   ├── connectors/              # Stubs for future data sources
 │   │   ├── gmail.py
 │   │   ├── calendar.py
 │   │   ├── sheets.py
 │   │   └── toddle.py
+│   ├── prompts/
+│   │   ├── email_triage.py      # Batch email classifier prompt
+│   │   └── weekly_schedule.py   # Weekly announcements extractor prompt
 │   ├── data/
 │   │   ├── mock_priorities.json      # Pending tasks (urgent, important, routine)
 │   │   ├── teacher_schedule.json     # 6-day rotating class schedule
-│   │   └── schedule_state.json       # Persistent rolling day state
+│   │   ├── schedule_state.json       # Persistent rolling day state
+│   │   └── teacher_pilot.db          # SQLite — emails + absences (gitignored)
 │   └── tests/
 │       ├── conftest.py
 │       ├── test_priorities.py
 │       └── test_schedule_day.py
 ├── frontend/
+│   ├── nginx.conf               # Serves SPA + proxies /api/* → backend
+│   ├── Dockerfile
 │   ├── src/
-│   │   ├── components/          # MarimbaGreeting, PriorityCard, TodaySchedule
+│   │   ├── components/          # MarimbaWidget, PriorityCard, TodaySchedule, ActiveCard
 │   │   ├── lib/
 │   │   │   ├── api/             # Axios client + Zod schemas
 │   │   │   ├── hooks/           # React Query hooks
@@ -184,21 +213,36 @@ teacher-pilot-mistral/
 
 ## Getting Started
 
-### Prerequisites
-- Python 3.11+
-- Node.js 18+ and npm
+### Option A — Docker (recommended for the Pi)
 
-### Backend
+See the [Deploy](#deploy-raspberry-pi--cloudflare) section below.
+
+### Option B — Local development
+
+**Prerequisites:** Python 3.11+ and Node.js 22+
+
+**Backend**
 
 ```bash
 cd backend
-cp .env.example .env
-# Optional: add your MISTRAL_API_KEY to .env for AI-powered priorities
+cp ../.env.example ../.env   # fill in MISTRAL_API_KEY
 pip install -r requirements.txt
 python main.py
+# → http://localhost:8000
 ```
 
-The server starts on `http://localhost:8000`:
+**Frontend**
+
+```bash
+cd frontend
+npm install
+npm run dev
+# → http://localhost:5173
+```
+
+No extra config needed — Vite automatically proxies `/api/*` requests to `localhost:8000`.
+
+**API endpoints**
 
 | Endpoint | Description |
 |---|---|
@@ -206,22 +250,13 @@ The server starts on `http://localhost:8000`:
 | `GET /api/schedule` | Teacher's class schedule + current day number |
 | `GET /api/schedule-day` | Current schedule day (1–6) |
 | `POST /api/schedule-day` | Manual override — body: `{"date": "YYYY-MM-DD", "day": N}` |
+| `POST /api/emails` | n8n webhook — receives a batch of Gmail messages for triage |
 | `GET /api/health` | Health check |
 | `GET /api/docs` | Interactive API docs (Swagger UI) |
 
-> **Without a Mistral key:** the endpoint still returns 3 tasks using a local scoring algorithm based on priority level, due dates, and today's schedule.
+> **Without a Mistral key:** priorities still work using a local scoring algorithm based on priority level, due dates, and today's schedule.
 
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-The app starts on `http://localhost:5173` and connects to the backend at `http://localhost:8000`.
-
-### Running Tests
+**Running tests**
 
 ```bash
 cd backend
@@ -232,17 +267,71 @@ pytest tests/ -v
 
 ---
 
+## Deploy (Raspberry Pi + Cloudflare)
+
+The production setup runs entirely on a home Raspberry Pi 5. A Cloudflare Tunnel exposes the app publicly without port forwarding or a static IP, routing `marimba.truvadur.com` straight to the Pi over an encrypted tunnel.
+
+```
+Internet → Cloudflare Edge → Tunnel (cloudflared) → nginx (frontend:80)
+                                                          ↓
+                                                   /api/* proxy
+                                                          ↓
+                                                  backend:8000
+```
+
+### One-time setup — Cloudflare Tunnel
+
+1. Go to [Cloudflare Zero Trust](https://one.dash.cloudflare.com) → **Networks → Tunnels → Create a tunnel**
+2. Choose **Cloudflared**, name it (e.g. `marimba-pi`)
+3. On the install screen, copy just the **token** (the long string after `--token`)
+4. Add a **Public Hostname**: hostname `marimba.truvadur.com` → service type `HTTP`, URL `frontend:80`
+5. Save
+
+### Deploy
+
+```bash
+# On the Pi — first time
+git clone <repo> teacher-pilot-mistral
+cd teacher-pilot-mistral
+cp .env.example .env
+nano .env   # add MISTRAL_API_KEY and CLOUDFLARE_TUNNEL_TOKEN
+
+# Build and launch everything (backend + frontend + tunnel)
+docker compose up -d --build
+```
+
+All three containers start with `restart: unless-stopped`, which means:
+- If a container crashes → Docker restarts it automatically
+- If the Pi reboots → Docker starts on boot and brings everything back up
+- The only way containers stay stopped is if you explicitly run `docker compose stop`
+
+### Useful commands
+
+```bash
+docker compose logs -f          # stream logs from all containers
+docker compose logs backend     # backend only
+docker compose restart backend  # apply a backend change without rebuilding
+
+# Pull latest code and rebuild
+git pull && docker compose up -d --build
+
+# Local access (bypasses Cloudflare — useful for debugging on the Pi)
+# http://localhost:8080
+```
+
+---
+
 ## Environment Variables
 
-Copy `backend/.env.example` to `backend/.env` and fill in values:
+Copy `.env.example` to `.env` at the project root and fill in values:
 
 ```
-MISTRAL_API_KEY=your-mistral-api-key-here   # Required for AI prioritization
-ELEVENLABS_API_KEY=your-key-here            # Required for Marimba voice output
-ELEVENLABS_VOICE_ID=your-voice-id-here      # Consistent voice persona
+MISTRAL_API_KEY=your-mistral-api-key-here       # Required for AI prioritization + email triage
+CLOUDFLARE_TUNNEL_TOKEN=your-tunnel-token-here  # Required for production deployment
+ENVIRONMENT=production                          # Optional — defaults to "development"
 ```
 
-All other variables have safe defaults for local development.
+Without `MISTRAL_API_KEY` the app still works — priorities fall back to the local scoring algorithm and email triage is skipped. Without `CLOUDFLARE_TUNNEL_TOKEN` only local access is available.
 
 ---
 
