@@ -1,3 +1,6 @@
+<img width="1408" height="801" alt="image" src="https://github.com/user-attachments/assets/7998a3fc-f31c-45cb-af46-4fb86178df2a" />
+
+
 # TeacherPilot: The AI Command Center for Educators
 
 **Eliminating decision fatigue for overwhelmed teachers**
