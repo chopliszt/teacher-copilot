@@ -38,7 +38,8 @@ export function PriorityCard({ priority, rank, onStart }: PriorityCardProps) {
 
   return (
     <article
-      className={`relative flex flex-col gap-4 bg-stone-900 rounded-2xl border ${styles.border} p-5 transition-colors`}
+      onClick={onStart}
+      className={`relative flex flex-col gap-4 bg-stone-900 rounded-2xl border ${styles.border} p-5 transition-all duration-300 cursor-pointer hover:shadow-[0_4px_24px_-8px_rgba(245,158,11,0.15)] group`}
     >
       {/* Header: rank + urgency badge */}
       <div className="flex items-center justify-between">
@@ -53,7 +54,10 @@ export function PriorityCard({ priority, rank, onStart }: PriorityCardProps) {
       </div>
 
       {/* Task title */}
-      <h2 className="text-stone-100 font-semibold text-sm leading-snug flex-1">
+      <h2 
+        className="text-stone-100 font-semibold text-sm leading-snug flex-1 line-clamp-3" 
+        title={priority.title}
+      >
         {priority.title}
       </h2>
 
@@ -82,8 +86,8 @@ export function PriorityCard({ priority, rank, onStart }: PriorityCardProps) {
           {dueDate.label}
         </span>
         <button
-          onClick={onStart}
-          className="text-xs font-semibold text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded-lg hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all"
+          onClick={(e) => { e.stopPropagation(); onStart(); }}
+          className="text-xs font-semibold text-amber-400 opacity-80 group-hover:opacity-100 px-3 py-1.5 rounded-lg group-hover:bg-amber-500/10 border border-transparent transition-all"
           aria-label={`Start task: ${priority.title}`}
         >
           Start →

@@ -19,7 +19,7 @@ from mistralai import Mistral
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
 TEACHER_CONTEXT = """
-The teacher's name is C. Infante. They teach Digital Design / Diseño Digital
+The teacher's name is T. Teacher. They teach Digital Design / Diseño Digital
 at Golden Valley School, Costa Rica. Their exact class schedule is:
 
   Day 1: 9A1 (11:30am–12:50pm), 5B1 (1:30pm–2:50pm)

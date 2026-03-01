@@ -6,28 +6,35 @@ Core API server for the TeacherPilot application, providing endpoints
 for priority management, classroom data, and AI-powered assistance.
 """
 
+import json
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-
-from fastapi import FastAPI, Depends, UploadFile, File
-from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from dotenv import load_dotenv
-import os
-import json
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from context_builder import build_context  # noqa: F401 (re-exported for tests)
-from mistral_client import call_mistral
-from schedule_day import get_current_schedule_day, set_schedule_day
-from prompts.weekly_schedule import extract_weekly_schedule
-from prompts.voice import call_voice_mistral
-from tts import text_to_speech
-from stt import transcribe_audio
-from database import init_db, get_db, AbsenceRecord, ImportantEmailRecord, WeeklyScheduleRecord, ClassSessionRecord, UserTaskRecord
+from database import (
+    AbsenceRecord,
+    ClassSessionRecord,
+    ImportantEmailRecord,
+    UserTaskRecord,
+    WeeklyScheduleRecord,
+    get_db,
+    init_db,
+)
+from dotenv import load_dotenv
 from email_processor import EmailBatch, process_batch
+from fastapi import Depends, FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from mistral_client import call_mistral
+from prompts.voice import call_voice_mistral
+from prompts.weekly_schedule import extract_weekly_schedule
+from pydantic import BaseModel
+from schedule_day import get_current_schedule_day, set_schedule_day
+from sqlalchemy.orm import Session
+from stt import transcribe_audio
+from tts import text_to_speech
 
 # Load environment variables
 load_dotenv()
@@ -35,7 +42,7 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()   # create tables on startup (no-op if they already exist)
+    init_db()  # create tables on startup (no-op if they already exist)
     yield
 
 
@@ -72,7 +79,7 @@ async def root() -> dict[str, str]:
         "name": "TeacherPilot API",
         "version": "0.1.0",
         "status": "healthy",
-        "message": "Welcome to TeacherPilot - The AI Command Center for Educators"
+        "message": "Welcome to TeacherPilot - The AI Command Center for Educators",
     }
 
 
@@ -245,7 +252,9 @@ def _parse_estimated_time(time_str: str) -> int:
         return 0
 
 
-def _filter_tasks_by_schedule(tasks: List[Dict[str, Any]], schedule_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _filter_tasks_by_schedule(
+    tasks: List[Dict[str, Any]], schedule_data: Dict[str, Any]
+) -> List[Dict[str, Any]]:
     """
     Filter tasks by current/relevant classes from schedule
 
@@ -366,11 +375,15 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
         user_task_records = db.execute(select(UserTaskRecord)).scalars().all()
 
         # Action-required emails
-        email_records = db.execute(
-            select(ImportantEmailRecord).where(
-                ImportantEmailRecord.category == "action_required"
+        email_records = (
+            db.execute(
+                select(ImportantEmailRecord).where(
+                    ImportantEmailRecord.category == "action_required"
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         # Weekly schedule data (meetings + action items)
         current_schedule_day = get_current_schedule_day()
@@ -383,26 +396,31 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
         action_tasks: List[Dict[str, Any]] = []
         if weekly_data:
             todays_meetings = [
-                m for m in weekly_data.get("meetings", [])
+                m
+                for m in weekly_data.get("meetings", [])
                 if m.get("schedule_day") == current_schedule_day
             ]
-            meeting_tasks = [_meeting_to_task(m, i) for i, m in enumerate(todays_meetings)]
+            meeting_tasks = [
+                _meeting_to_task(m, i) for i, m in enumerate(todays_meetings)
+            ]
             action_tasks = [
                 _action_item_to_task(item, i)
                 for i, item in enumerate(weekly_data.get("action_items", [])[:5])
             ]
 
         all_tasks = (
-            [_user_task_to_task(r) for r in user_task_records] +
-            [_email_to_task(e) for e in email_records] +
-            meeting_tasks +
-            action_tasks
+            [_user_task_to_task(r) for r in user_task_records]
+            + [_email_to_task(e) for e in email_records]
+            + meeting_tasks
+            + action_tasks
         )
 
         current_time = _get_current_time()
 
         # Try Mistral-powered prioritization first
-        mistral_results = await call_mistral(all_tasks, schedule_data, current_time, weekly_data=weekly_data)
+        mistral_results = await call_mistral(
+            all_tasks, schedule_data, current_time, weekly_data=weekly_data
+        )
 
         reasons: Dict[str, str] = {}
         if mistral_results:
@@ -447,7 +465,7 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
         response = {
             "priorities": priorities_out,
             "generated_at": datetime.now().isoformat(),
-            "count": len(priorities_out)
+            "count": len(priorities_out),
         }
 
         return response
@@ -466,6 +484,7 @@ async def get_schedule_day() -> Dict[str, Any]:
         dict: {"date": "YYYY-MM-DD", "day": N}
     """
     from datetime import date
+
     day = get_current_schedule_day()
     return {"date": date.today().isoformat(), "day": day}
 
@@ -514,6 +533,7 @@ async def receive_emails(
 async def get_absences(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """All recorded student absences (most recent first)."""
     from sqlalchemy import select
+
     records = db.execute(select(AbsenceRecord)).scalars().all()
     return [
         {
@@ -530,11 +550,16 @@ async def get_absences(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
 async def get_important_emails(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """Action-required emails (excludes weekly_schedule — those are processed separately)."""
     from sqlalchemy import select
-    records = db.execute(
-        select(ImportantEmailRecord).where(
-            ImportantEmailRecord.category == "action_required"
+
+    records = (
+        db.execute(
+            select(ImportantEmailRecord).where(
+                ImportantEmailRecord.category == "action_required"
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         {
             "id": r.id,
@@ -549,18 +574,23 @@ async def get_important_emails(db: Session = Depends(get_db)) -> List[Dict[str, 
 
 class AddTaskRequest(BaseModel):
     title: str
-    priority: str = "medium"   # high / medium / low
+    priority: str = "medium"  # high / medium / low
     due_date: Optional[str] = None  # YYYY-MM-DD
 
 
 @app.post("/api/tasks")
-async def add_task(body: AddTaskRequest, db: Session = Depends(get_db)) -> Dict[str, Any]:
+async def add_task(
+    body: AddTaskRequest, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
     """Add a teacher-created task to the priority pool."""
     import uuid
+
     record = UserTaskRecord(
         id=str(uuid.uuid4()),
         title=body.title,
-        priority=body.priority if body.priority in ("high", "medium", "low") else "medium",
+        priority=body.priority
+        if body.priority in ("high", "medium", "low")
+        else "medium",
         due_date=body.due_date,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -579,6 +609,7 @@ async def add_task(body: AddTaskRequest, db: Session = Depends(get_db)) -> Dict[
 async def list_tasks(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """Return all teacher-created tasks."""
     from sqlalchemy import select
+
     records = db.execute(select(UserTaskRecord)).scalars().all()
     return [
         {
@@ -631,15 +662,17 @@ async def post_weekly_schedule(
     record = db.get(WeeklyScheduleRecord, "current")
     if record:
         record.week_label = data.get("week_label", "")
-        record.data       = json.dumps(data, ensure_ascii=False)
+        record.data = json.dumps(data, ensure_ascii=False)
         record.created_at = date.today().isoformat()
     else:
-        db.add(WeeklyScheduleRecord(
-            id="current",
-            week_label=data.get("week_label", ""),
-            data=json.dumps(data, ensure_ascii=False),
-            created_at=date.today().isoformat(),
-        ))
+        db.add(
+            WeeklyScheduleRecord(
+                id="current",
+                week_label=data.get("week_label", ""),
+                data=json.dumps(data, ensure_ascii=False),
+                created_at=date.today().isoformat(),
+            )
+        )
     db.commit()
     return data
 
@@ -651,6 +684,7 @@ async def get_weekly_schedule(db: Session = Depends(get_db)) -> Dict[str, Any]:
     Returns empty lists when no schedule has been loaded yet.
     """
     import json
+
     record = db.get(WeeklyScheduleRecord, "current")
     if not record:
         return {
@@ -694,15 +728,17 @@ async def log_class_session(
         existing.what_worked = body.what_worked
         existing.created_at = now_str
     else:
-        db.add(ClassSessionRecord(
-            id=record_id,
-            group=group,
-            schedule_day=sday,
-            date=today,
-            notes=body.notes,
-            what_worked=body.what_worked,
-            created_at=now_str,
-        ))
+        db.add(
+            ClassSessionRecord(
+                id=record_id,
+                group=group,
+                schedule_day=sday,
+                date=today,
+                notes=body.notes,
+                what_worked=body.what_worked,
+                created_at=now_str,
+            )
+        )
     db.commit()
 
     record = db.get(ClassSessionRecord, record_id)
@@ -725,14 +761,20 @@ async def get_last_session(
     """
     Return the most recent session log for a class group, or null if none exists.
     """
-    from sqlalchemy import select, desc
+    from sqlalchemy import desc, select
 
-    record = db.execute(
-        select(ClassSessionRecord)
-        .where(ClassSessionRecord.group == group)
-        .order_by(desc(ClassSessionRecord.date), desc(ClassSessionRecord.schedule_day))
-        .limit(1)
-    ).scalars().first()
+    record = (
+        db.execute(
+            select(ClassSessionRecord)
+            .where(ClassSessionRecord.group == group)
+            .order_by(
+                desc(ClassSessionRecord.date), desc(ClassSessionRecord.schedule_day)
+            )
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
 
     if not record:
         return None
@@ -765,19 +807,23 @@ def _build_voice_context(
     homeroom = schedule_data.get("homeroom", {})
     classes_parts = []
     if homeroom:
-        classes_parts.append(f"{homeroom.get('group')} (homeroom) at {homeroom.get('time')}")
+        classes_parts.append(
+            f"{homeroom.get('group')} (homeroom) at {homeroom.get('time')}"
+        )
     for p in today_periods:
         classes_parts.append(f"{p.get('group')} at {p.get('time')}")
     classes_str = ", ".join(classes_parts) or "no classes today"
 
-    tasks_str = "\n".join(
-        f"- {t['title']} ({t['priority']})" for t in all_tasks[:8]
-    ) or "no tasks"
+    tasks_str = (
+        "\n".join(f"- {t['title']} ({t['priority']})" for t in all_tasks[:8])
+        or "no tasks"
+    )
 
     meetings_str = ""
     if weekly_data:
         meetings = [
-            m for m in weekly_data.get("meetings", [])
+            m
+            for m in weekly_data.get("meetings", [])
             if m.get("schedule_day") == current_day
         ]
         if meetings:
@@ -819,22 +865,26 @@ async def handle_voice(
         schedule_data = _load_schedule_data() or {}
 
         from sqlalchemy import select
+
         user_task_records = db.execute(select(UserTaskRecord)).scalars().all()
-        email_records = db.execute(
-            select(ImportantEmailRecord).where(
-                ImportantEmailRecord.category == "action_required"
+        email_records = (
+            db.execute(
+                select(ImportantEmailRecord).where(
+                    ImportantEmailRecord.category == "action_required"
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         weekly_record = db.get(WeeklyScheduleRecord, "current")
         weekly_data: Optional[Dict[str, Any]] = None
         if weekly_record:
             weekly_data = json.loads(weekly_record.data)
 
-        all_tasks = (
-            [_user_task_to_task(r) for r in user_task_records] +
-            [_email_to_task(e) for e in email_records]
-        )
+        all_tasks = [_user_task_to_task(r) for r in user_task_records] + [
+            _email_to_task(e) for e in email_records
+        ]
 
         context = _build_voice_context(schedule_data, all_tasks, weekly_data)
 
@@ -842,7 +892,7 @@ async def handle_voice(
 
         if not mistral_result:
             return {
-                "text": "Lo siento, profe — no puedo conectarme ahora mismo. Intenta de nuevo.",
+                "text": "Sorry, I can't connect right now. Please try again.",
                 "audio": None,
                 "action": None,
             }
@@ -853,6 +903,7 @@ async def handle_voice(
         # If action is add_task, persist it to DB immediately
         if action and action.get("type") == "add_task":
             import uuid
+
             task_title = action.get("title", "").strip()
             task_priority = action.get("priority", "medium")
             if task_title and task_priority in ("high", "medium", "low"):
@@ -876,7 +927,7 @@ async def handle_voice(
 
     except Exception:
         return {
-            "text": "Algo salió mal, profe. Intenta de nuevo.",
+            "text": "Something went wrong. Please try again.",
             "audio": None,
             "action": None,
         }
@@ -884,10 +935,5 @@ async def handle_voice(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
+
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, log_level="info")

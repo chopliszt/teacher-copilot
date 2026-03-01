@@ -1,20 +1,23 @@
-import { useState } from 'react';
-
 // ── State machine ────────────────────────────────────────────────────────────
 //
 //  idle       Default. Marimba breathes slowly.
-//  listening  Mic is active. Amber ring pulses. (Voxtral wires in here)
-//  thinking   Processing. Dots bounce above avatar. (Triggered after transcription)
-//  speaking   ElevenLabs audio playing. Avatar pulses with speech rhythm.
+//  listening  Mic is active. Amber ring pulses. Tap again to stop.
+//  thinking   Voxtral + Mistral processing. Dots bounce.
+//  speaking   ElevenLabs audio playing. Avatar pulses.
 //
-// Future — fullscreen mode:
-//   handleAvatarClick will animate this widget to fill the screen,
-//   activating the live assistant interface. The state machine is the same;
-//   only the container size and layout change.
 
 export type MarimbaState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
-// ── Thinking dots ────────────────────────────────────────────────────────────
+// ── Status label ──────────────────────────────────────────────────────────────
+
+const STATUS_LABEL: Record<MarimbaState, string> = {
+  idle:      'tap to speak',
+  listening: 'listening… tap to stop',
+  thinking:  'thinking…',
+  speaking:  'speaking',
+};
+
+// ── Thinking dots ─────────────────────────────────────────────────────────────
 
 function ThinkingDots() {
   return (
@@ -43,20 +46,21 @@ const AVATAR_ANIMATION: Record<MarimbaState, React.CSSProperties> = {
 
 const AVATAR_RING: Record<MarimbaState, string> = {
   idle:      'border-amber-500/20',
-  listening: 'border-amber-400/70',
-  thinking:  'border-amber-500/30',
-  speaking:  'border-amber-400/50',
+  listening: 'border-amber-400/80',
+  thinking:  'border-amber-500/40',
+  speaking:  'border-amber-400/60',
 };
 
 interface AvatarProps {
   state: MarimbaState;
   onClick: () => void;
+  canClick: boolean;
 }
 
-function Avatar({ state, onClick }: AvatarProps) {
+function Avatar({ state, onClick, canClick }: AvatarProps) {
   return (
     <div className="relative flex items-center justify-center">
-      {/* Listening ring — expands and fades behind the bubble */}
+      {/* Pulsing ring while listening */}
       {state === 'listening' && (
         <div
           className="absolute inset-0 rounded-full bg-amber-400/15"
@@ -66,16 +70,19 @@ function Avatar({ state, onClick }: AvatarProps) {
 
       <button
         onClick={onClick}
+        disabled={!canClick}
         style={AVATAR_ANIMATION[state]}
         className={`
           relative w-14 h-14 rounded-full
           bg-amber-500/10 border-2 ${AVATAR_RING[state]}
           flex items-center justify-center text-2xl
-          cursor-pointer select-none
-          transition-colors duration-300
-          hover:bg-amber-500/15 active:scale-95
+          select-none transition-colors duration-300
+          ${canClick
+            ? 'cursor-pointer hover:bg-amber-500/15 active:scale-95'
+            : 'cursor-default'
+          }
         `}
-        aria-label="Marimba — tap for full assistant"
+        aria-label={canClick ? 'Tap to speak to Marimba' : 'Marimba is busy'}
       >
         🦊
       </button>
@@ -83,64 +90,45 @@ function Avatar({ state, onClick }: AvatarProps) {
   );
 }
 
-// ── Mic button ────────────────────────────────────────────────────────────────
-
-interface MicButtonProps {
-  active: boolean;
-  onClick: () => void;
-}
-
-function MicButton({ active, onClick }: MicButtonProps) {
-  return (
-    <button
-      onClick={onClick}
-      className={`
-        w-9 h-9 rounded-full flex items-center justify-center
-        border transition-all duration-200
-        ${active
-          ? 'bg-amber-500/20 border-amber-400/60 text-amber-400'
-          : 'bg-stone-900 border-stone-700 text-stone-500 hover:text-stone-400 hover:border-stone-600'
-        }
-      `}
-      aria-label={active ? 'Stop listening' : 'Speak to Marimba'}
-    >
-      <svg
-        width="14" height="14" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor"
-        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-      >
-        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-        <line x1="12" y1="19" x2="12" y2="23" />
-        <line x1="8"  y1="23" x2="16" y2="23" />
-      </svg>
-    </button>
-  );
-}
+// ── Mic button removed (handled entirely by Avatar) ──
 
 // ── Widget ────────────────────────────────────────────────────────────────────
 
-export function MarimbaWidget() {
-  const [state, setState] = useState<MarimbaState>('idle');
+interface MarimbaWidgetProps {
+  state: MarimbaState;
+  isSupported: boolean;
+  onMicClick: () => void;
+  lastResponse: string | null;
+}
 
-  const handleMicClick = () => {
-    // Stub — Voxtral Realtime integration wires in here.
-    // When connected: start/stop transcription stream, then setState('thinking')
-    // when the transcript is sent to Mistral, then setState('speaking') during playback.
-    setState((prev) => (prev === 'listening' ? 'idle' : 'listening'));
-  };
-
-  const handleAvatarClick = () => {
-    // Future: fullscreen live assistant mode.
-    // Will transition this widget to fill the screen with a CSS animation,
-    // revealing the full voice interface and activating the conversation.
-  };
+export function MarimbaWidget({ state, isSupported, onMicClick, lastResponse }: MarimbaWidgetProps) {
+  const canTap = isSupported && (state === 'idle' || state === 'listening');
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-center gap-2">
-      {state === 'thinking' && <ThinkingDots />}
-      <Avatar state={state} onClick={handleAvatarClick} />
-      <MicButton active={state === 'listening'} onClick={handleMicClick} />
+    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+
+      {/* Speech bubble — always shown when there's a response, audio or not */}
+      {lastResponse && (
+        <div className="relative max-w-[220px] mb-1">
+          <div className="bg-stone-800 border border-stone-700 rounded-2xl rounded-br-sm px-3.5 py-2.5 shadow-lg">
+            <p className="text-stone-200 text-xs leading-relaxed">{lastResponse}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col items-center gap-2">
+        {state === 'thinking' && <ThinkingDots />}
+
+        <Avatar state={state} onClick={onMicClick} canClick={canTap} />
+
+        {/* Status label */}
+        <p className={`
+          text-xs transition-colors duration-300 select-none
+          ${state === 'listening' ? 'text-amber-400/80' : 'text-stone-600'}
+        `}>
+          {isSupported ? STATUS_LABEL[state] : 'mic unavailable'}
+        </p>
+      </div>
     </div>
   );
 }

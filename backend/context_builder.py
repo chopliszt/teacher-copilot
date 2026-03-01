@@ -10,7 +10,7 @@ from schedule_day import get_current_schedule_day
 
 # Shared teacher identity — used in both the priority prompt and the voice prompt
 TEACHER_PROFILE = (
-    "The teacher's name is C. Infante. They teach Digital Design / Diseño Digital "
+    "The teacher's name is T. Teacher. They teach Digital Design / Diseño Digital "
     "at Golden Valley School, Costa Rica. "
     "Address them as \"profe\" — never by name. "
     "They teach 13 groups (4A, 4B, 5B1, 5B2, 6B1, 6B2, 7A1, 7B, 8A1, 9A1, 9A2, 10A1, 10A2) "

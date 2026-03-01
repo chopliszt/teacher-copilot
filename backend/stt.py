@@ -34,7 +34,7 @@ async def transcribe_audio(
         response = await client.audio.transcriptions.complete_async(
             model="voxtral-mini-latest",
             file={"content": audio_bytes, "file_name": filename},  # bytes, not BytesIO
-            language="es",  # Costa Rican Spanish — Voxtral handles code-switching gracefully
+            language="en",  # English
         )
 
         text = getattr(response, "text", None)

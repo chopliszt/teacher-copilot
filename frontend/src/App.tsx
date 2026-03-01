@@ -1,9 +1,15 @@
+import { useCallback, useState } from 'react';
 import { usePriorities } from './lib/hooks/usePriorities';
+import { useWeeklySchedule } from './lib/hooks/useWeeklySchedule';
+import { useVoice } from './lib/hooks/useVoice';
 import { MarimbaGreeting } from './components/MarimbaGreeting';
 import { MarimbaWidget } from './components/MarimbaWidget';
 import { PriorityList } from './components/PriorityList';
 import { TodaySchedule } from './components/TodaySchedule';
 import { InboxTray } from './components/InboxTray';
+import { UserTaskSection } from './components/UserTaskSection';
+import { FridayBanner } from './components/FridayBanner';
+import type { VoiceAction } from './lib/api/client';
 
 function LoadingScreen() {
   return (
@@ -40,21 +46,50 @@ function ErrorScreen({ message }: ErrorScreenProps) {
 
 export default function App() {
   const { data, isLoading, isError, error } = usePriorities();
+  const { data: weeklySchedule } = useWeeklySchedule();
+
+  // Voice-triggered class briefing state
+  const [voiceOpenGroup, setVoiceOpenGroup] = useState<string | null>(null);
+
+  const handleVoiceAction = useCallback((action: VoiceAction) => {
+    if (action.type === 'open_class' && action.group) {
+      setVoiceOpenGroup(action.group);
+      // Scroll the schedule section into view so the briefing panel is visible
+      setTimeout(() => {
+        document.getElementById('today-schedule')?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+    // add_task: backend already saved it; useVoice invalidates queries automatically
+  }, []);
+
+  const { marimbaState, toggleListening, isSupported, lastResponse } = useVoice({
+    onAction: handleVoiceAction,
+  });
 
   if (isLoading) return <LoadingScreen />;
   if (isError) return <ErrorScreen message={error?.message ?? 'Unknown error'} />;
 
   const priorities = data?.priorities ?? [];
+  const hasWeeklyData = !!(weeklySchedule?.week_label);
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50">
       <main className="max-w-4xl mx-auto px-4 py-10 sm:px-6 lg:px-8">
         <MarimbaGreeting priorityCount={priorities.length} />
-        <TodaySchedule />
+        <div id="today-schedule">
+          <TodaySchedule openGroup={voiceOpenGroup} />
+        </div>
+        <FridayBanner hasWeeklyData={hasWeeklyData} />
         <PriorityList priorities={priorities} />
+        <UserTaskSection />
         <InboxTray />
       </main>
-      <MarimbaWidget />
+      <MarimbaWidget
+        state={marimbaState}
+        isSupported={isSupported}
+        onMicClick={toggleListening}
+        lastResponse={lastResponse}
+      />
     </div>
   );
 }

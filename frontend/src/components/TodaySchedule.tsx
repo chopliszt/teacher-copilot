@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSchedule } from '../lib/hooks/useSchedule';
 import { useAbsences } from '../lib/hooks/useAbsences';
 import { useWeeklySchedule } from '../lib/hooks/useWeeklySchedule';
+import { useLastSession, useLogSession } from '../lib/hooks/useClassSession';
 import { type SchedulePeriod, type Absence, type ClassDisruption } from '../lib/api/client';
 import { MOCK_CLASS_BRIEFINGS, DEFAULT_CLASS_BRIEFING, type ClassBriefing } from '../lib/mockClassBriefings';
 
@@ -31,6 +32,29 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
   };
 
   const totalFlags = absentStudents.length + briefing.flags;
+
+  // Session log state
+  const { data: lastSession, isLoading: sessionLoading } = useLastSession(period.group);
+  const logSession = useLogSession(period.group);
+  const [formOpen, setFormOpen] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [whatWorked, setWhatWorked] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    logSession.mutate(
+      { notes, what_worked: whatWorked || undefined },
+      {
+        onSuccess: () => {
+          setSaved(true);
+          setFormOpen(false);
+          setNotes('');
+          setWhatWorked('');
+          setTimeout(() => setSaved(false), 2000);
+        },
+      },
+    );
+  };
 
   return (
     <div className="mt-3 bg-stone-900 border border-stone-800 rounded-2xl p-5 space-y-4">
@@ -114,12 +138,18 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
         </div>
         <div className="flex gap-2">
           <span className="text-stone-600 w-20 flex-shrink-0">Last session</span>
-          <span className="text-stone-400">{briefing.lastSession}</span>
+          {sessionLoading ? (
+            <span className="text-stone-700 text-xs italic">Loading…</span>
+          ) : lastSession ? (
+            <span className="text-stone-400">{lastSession.notes}</span>
+          ) : (
+            <span className="text-stone-500 italic">{briefing.lastSession}</span>
+          )}
         </div>
       </div>
 
-      {/* Source links */}
-      <div className="flex gap-2 pt-1">
+      {/* Source links + plan lesson */}
+      <div className="flex gap-2 pt-1 flex-wrap">
         {briefing.sources.includes('Toddle') && (
           <button className="text-xs text-stone-600 hover:text-stone-400 border border-stone-800 hover:border-stone-700 px-3 py-1.5 rounded-lg transition-colors">
             Toddle →
@@ -130,7 +160,53 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
             Student list →
           </button>
         )}
+        <button className="text-xs text-amber-600/70 hover:text-amber-400 border border-amber-500/20 hover:border-amber-500/40 px-3 py-1.5 rounded-lg transition-colors">
+          Plan lesson →
+        </button>
       </div>
+
+      {/* Log session */}
+      {!formOpen ? (
+        <button
+          onClick={() => setFormOpen(true)}
+          className="w-full text-xs text-stone-600 hover:text-stone-400 border border-stone-800 hover:border-stone-700 px-3 py-2 rounded-lg transition-colors text-left"
+        >
+          {saved ? '✓ Session logged' : '+ Log this session'}
+        </button>
+      ) : (
+        <div className="space-y-3 pt-1">
+          <p className="text-stone-500 text-xs font-semibold uppercase tracking-wide">Log this session</p>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="How did this class go?"
+            rows={3}
+            className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-stone-300 text-sm placeholder-stone-700 resize-none focus:outline-none focus:border-stone-600"
+          />
+          <textarea
+            value={whatWorked}
+            onChange={(e) => setWhatWorked(e.target.value)}
+            placeholder="What worked well? (optional)"
+            rows={2}
+            className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-stone-300 text-sm placeholder-stone-700 resize-none focus:outline-none focus:border-stone-600"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={!notes.trim() || logSession.isPending}
+              className="flex-1 py-2 rounded-xl bg-stone-700 hover:bg-stone-600 disabled:opacity-40 disabled:cursor-not-allowed text-stone-200 text-xs font-medium transition-all"
+            >
+              {logSession.isPending ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              onClick={() => { setFormOpen(false); setNotes(''); setWhatWorked(''); }}
+              className="px-4 py-2 rounded-xl border border-stone-800 hover:border-stone-700 text-stone-600 hover:text-stone-400 text-xs transition-all"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );
@@ -175,11 +251,20 @@ function PeriodChip({ period, isActive, absenceCount, hasDisruption, onClick }: 
 
 // ── TodaySchedule ─────────────────────────────────────────────────────────────
 
-export function TodaySchedule() {
+interface TodayScheduleProps {
+  openGroup?: string | null;  // voice-triggered: open this group's briefing
+}
+
+export function TodaySchedule({ openGroup }: TodayScheduleProps = {}) {
   const { data: schedule, isLoading } = useSchedule();
   const { data: absences = [] } = useAbsences();
   const { data: weeklySchedule } = useWeeklySchedule();
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+
+  // Respond to voice-triggered group opens
+  useEffect(() => {
+    if (openGroup) setSelectedGroup(openGroup);
+  }, [openGroup]);
 
   if (isLoading || !schedule) return null;
 

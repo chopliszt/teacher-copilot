@@ -234,7 +234,9 @@ export function ActiveCard({ priority, rank, onBack, onDone }: ActiveCardProps) 
         {/* Marimba note */}
         <div className="flex gap-3 bg-amber-500/5 border border-amber-500/15 rounded-xl p-4">
           <span className="text-lg flex-shrink-0 mt-0.5">🦊</span>
-          <p className="text-stone-400 text-sm leading-relaxed">{briefing.marimbaNote}</p>
+          <p className="text-stone-400 text-sm leading-relaxed">
+            {priority.marimba_note ?? briefing.marimbaNote}
+          </p>
         </div>
 
         {/* Action-specific content */}
