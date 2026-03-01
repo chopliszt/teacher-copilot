@@ -12,46 +12,48 @@
     {
       "day": 1,
       "periods": [
-        { "time": "7:50 - 8:30am", "subject": "Digital Design", "room": "Codingspace", "group": "8A1" },
-        { "time": "10:10 - 10:50am", "subject": "Digital Design", "room": "Codingspace", "group": "8A1" },
-        { "time": "11:30 - 12:10pm", "subject": "Diseño Digital", "room": "Codingspace", "group": "9A1" },
-        { "time": "1:30 - 2:10pm", "subject": "Digital Design", "room": "Codingspace", "group": "5B1" }
+        { "time": "11:30am - 12:50pm", "subject": "Diseño Digital", "room": "Codingspace", "group": "9A1" },
+        { "time": "1:30pm - 2:50pm",   "subject": "Digital Design", "room": "Codingspace", "group": "5B1" }
       ]
     },
     {
       "day": 2,
       "periods": [
-        { "time": "8:30 - 9:10am", "subject": "Diseño Digital", "room": "Codingspace", "group": "9A2" },
-        { "time": "10:50 - 11:30am", "subject": "Digital Design", "room": "Codingspace", "group": "5B2" },
-        { "time": "1:30 - 2:10pm", "subject": "Digital Design", "room": null, "group": "6B1" }
+        { "time": "7:50am - 9:10am",   "subject": "Digital Design", "room": "Codingspace", "group": "8A1" },
+        { "time": "9:10am - 10:50am",  "subject": "Digital Design", "room": "Codingspace", "group": "4B"  },
+        { "time": "10:50am - 12:10pm", "subject": "Digital Design", "room": "Codingspace", "group": "5B2" },
+        { "time": "1:30pm - 2:50pm",   "subject": "Digital Design", "room": "Codingspace", "group": "6B1" }
       ]
     },
     {
       "day": 3,
       "periods": [
-        { "time": "7:50 - 8:30am", "subject": "Diseño Digital", "room": "Codingspace", "group": "9A2" },
-        { "time": "9:10 - 9:50am", "subject": "Diseño Digital", "room": "Codingspace", "group": "10A2" },
-        { "time": "10:10 - 10:50am", "subject": "Digital Design", "room": null, "group": "6B2" },
-        { "time": "11:30 - 12:10pm", "subject": "Digital Design", "room": "Codingspace", "group": "7B" }
+        { "time": "7:50am - 9:10am",   "subject": "Diseño Digital", "room": "Codingspace", "group": "9A2"  },
+        { "time": "9:10am - 9:50am",   "subject": "Diseño Digital", "room": "Codingspace", "group": "10A2" },
+        { "time": "10:10am - 11:30am", "subject": "Digital Design", "room": "Codingspace", "group": "8A1"  }
       ]
     },
     {
       "day": 4,
       "periods": [
-        { "time": "7:50 - 8:30am", "subject": "Diseño Digital", "room": "Codingspace", "group": "10A1" },
-        { "time": "9:10 - 9:50am", "subject": "Digital Design", "room": "Codingspace", "group": "4B" },
-        { "time": "10:10 - 10:50am", "subject": "Diseño Digital", "room": "Codingspace", "group": "9A1" },
-        { "time": "10:50 - 11:30am", "subject": "Digital Design", "room": "Codingspace", "group": "4A" },
-        { "time": "11:30 - 12:10pm", "subject": "Digital Design", "room": "Codingspace", "group": "7A1" }
+        { "time": "7:50am - 8:30am",   "subject": "Diseño Digital", "room": "Codingspace", "group": "10A1" },
+        { "time": "10:10am - 11:30am", "subject": "Digital Design", "room": null,           "group": "6B2"  },
+        { "time": "11:30am - 12:50pm", "subject": "Digital Design", "room": "Codingspace", "group": "7B"   }
       ]
     },
     {
       "day": 5,
-      "periods": []
+      "periods": [
+        { "time": "8:30am - 9:50am",   "subject": "Diseño Digital", "room": "Codingspace", "group": "9A2"  },
+        { "time": "10:10am - 11:30am", "subject": "Diseño Digital", "room": "Codingspace", "group": "9A1"  },
+        { "time": "11:30am - 12:50pm", "subject": "Digital Design", "room": "Codingspace", "group": "7A1"  }
+      ]
     },
     {
       "day": 6,
-      "periods": []
+      "periods": [
+        { "time": "10:50am - 12:10pm", "subject": "Digital Design", "room": "Codingspace", "group": "4A" }
+      ]
     }
   ],
   "break": "9:50 - 10:10am",

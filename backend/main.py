@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Depends
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
@@ -21,7 +22,8 @@ from typing import List, Dict, Any, Optional
 from context_builder import build_context  # noqa: F401 (re-exported for tests)
 from mistral_client import call_mistral
 from schedule_day import get_current_schedule_day, set_schedule_day
-from database import init_db, get_db
+from prompts.weekly_schedule import extract_weekly_schedule
+from database import init_db, get_db, AbsenceRecord, ImportantEmailRecord, WeeklyScheduleRecord
 from email_processor import EmailBatch, process_batch
 
 # Load environment variables
@@ -266,16 +268,30 @@ def _filter_tasks_by_schedule(tasks: List[Dict[str, Any]], schedule_data: Dict[s
     return filtered_tasks
 
 
-@app.get("/api/priorities")
-async def get_priorities() -> Dict[str, Any]:
-    """
-    Get top 3 priority tasks for the teacher
+def _email_to_task(email: ImportantEmailRecord) -> Dict[str, Any]:
+    """Convert a stored action-required email into the task format Mistral expects."""
+    return {
+        "id": email.id,
+        "title": email.subject,
+        "description": email.snippet,
+        "priority": "high",
+        "due_date": "",
+        "estimated_time": "15 minutes",
+        "related_class": "All",
+        "related_subject": "Email",
+    }
 
-    Security Considerations (OWASP Top 10):
-    - A03:2021: No user input processed
-    - A01:2021: Generic error messages
-    - A04:2021: No insecure deserialization
-    - A05:2021: Proper error handling
+
+@app.get("/api/priorities")
+async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """
+    Get top 3 priority tasks for the teacher.
+
+    Pools tasks from two sources:
+      1. mock_priorities.json  (grading, lesson prep, etc.)
+      2. action_required emails from the DB (emails that need a response or action)
+
+    Mistral ranks the combined pool and picks the top 3.
 
     Returns:
         Dict: Top 3 priorities with metadata
@@ -288,11 +304,19 @@ async def get_priorities() -> Dict[str, Any]:
         if not priority_data or not schedule_data:
             return {"error": "Priority data not available"}
 
-        # Combine all tasks
+        # Combine tasks from JSON + action-required emails from DB
+        from sqlalchemy import select
+        email_records = db.execute(
+            select(ImportantEmailRecord).where(
+                ImportantEmailRecord.category == "action_required"
+            )
+        ).scalars().all()
+
         all_tasks = (
             priority_data.get("urgent_tasks", []) +
             priority_data.get("important_tasks", []) +
-            priority_data.get("routine_tasks", [])
+            priority_data.get("routine_tasks", []) +
+            [_email_to_task(e) for e in email_records]
         )
 
         current_time = _get_current_time()
@@ -393,6 +417,104 @@ async def receive_emails(
     Idempotent — already-stored email IDs are silently skipped.
     """
     return await process_batch(batch, db)
+
+
+@app.get("/api/absences")
+async def get_absences(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    """All recorded student absences (most recent first)."""
+    from sqlalchemy import select
+    records = db.execute(select(AbsenceRecord)).scalars().all()
+    return [
+        {
+            "id": r.id,
+            "student_name": r.student_name,
+            "group_name": r.group_name,
+            "date": r.date,
+        }
+        for r in records
+    ]
+
+
+@app.get("/api/important-emails")
+async def get_important_emails(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    """Action-required emails (excludes weekly_schedule — those are processed separately)."""
+    from sqlalchemy import select
+    records = db.execute(
+        select(ImportantEmailRecord).where(
+            ImportantEmailRecord.category == "action_required"
+        )
+    ).scalars().all()
+    return [
+        {
+            "id": r.id,
+            "subject": r.subject,
+            "sender": r.sender,
+            "snippet": r.snippet,
+            "date": r.date,
+        }
+        for r in records
+    ]
+
+
+class WeeklyScheduleRequest(BaseModel):
+    document_text: str
+
+
+@app.post("/api/weekly-schedule")
+async def post_weekly_schedule(
+    body: WeeklyScheduleRequest,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Receive the Google Doc text from n8n and extract structured agenda data.
+
+    n8n fetches the Google Doc linked in the "Anuncios Semanales" email and
+    POSTs the plain text here. Mistral extracts meetings, class disruptions,
+    action items, and upcoming dates.
+
+    Overwrites the previous weekly schedule (only the current week is kept).
+    """
+    data = await extract_weekly_schedule(body.document_text)
+    if not data:
+        return {"error": "Could not extract schedule — check MISTRAL_API_KEY"}
+
+    import json
+    from datetime import date
+
+    record = db.get(WeeklyScheduleRecord, "current")
+    if record:
+        record.week_label = data.get("week_label", "")
+        record.data       = json.dumps(data, ensure_ascii=False)
+        record.created_at = date.today().isoformat()
+    else:
+        db.add(WeeklyScheduleRecord(
+            id="current",
+            week_label=data.get("week_label", ""),
+            data=json.dumps(data, ensure_ascii=False),
+            created_at=date.today().isoformat(),
+        ))
+    db.commit()
+    return data
+
+
+@app.get("/api/weekly-schedule")
+async def get_weekly_schedule(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """
+    Return the most recently extracted weekly schedule.
+    Returns empty lists when no schedule has been loaded yet.
+    """
+    import json
+    record = db.get(WeeklyScheduleRecord, "current")
+    if not record:
+        return {
+            "week_label": "",
+            "meetings": [],
+            "class_disruptions": [],
+            "action_items": [],
+            "upcoming_dates": [],
+            "absences": [],
+        }
+    return json.loads(record.data)
 
 
 if __name__ == "__main__":

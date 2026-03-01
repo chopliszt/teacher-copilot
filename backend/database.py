@@ -49,6 +49,22 @@ class AbsenceRecord(Base):
     raw_snippet  = Column(Text,   nullable=False)     # original text for reference
 
 
+class WeeklyScheduleRecord(Base):
+    """
+    Extracted weekly schedule data from the "Anuncios Semanales" Google Doc.
+    Only one row ever exists (id="current") — overwritten each week.
+
+    data: JSON blob — {week_label, meetings, class_disruptions, action_items,
+                        upcoming_dates, absences}
+    """
+    __tablename__ = "weekly_schedule"
+
+    id         = Column(String, primary_key=True, default="current")
+    week_label = Column(String, nullable=False, default="")
+    data       = Column(Text,   nullable=False)   # full JSON from Mistral extraction
+    created_at = Column(String, nullable=False)   # ISO date when last updated
+
+
 def init_db() -> None:
     """Create all tables. Safe to call on every startup (no-op if they exist)."""
     Base.metadata.create_all(bind=engine)

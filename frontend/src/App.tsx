@@ -3,6 +3,7 @@ import { MarimbaGreeting } from './components/MarimbaGreeting';
 import { MarimbaWidget } from './components/MarimbaWidget';
 import { PriorityList } from './components/PriorityList';
 import { TodaySchedule } from './components/TodaySchedule';
+import { InboxTray } from './components/InboxTray';
 
 function LoadingScreen() {
   return (
@@ -51,6 +52,7 @@ export default function App() {
         <MarimbaGreeting priorityCount={priorities.length} />
         <TodaySchedule />
         <PriorityList priorities={priorities} />
+        <InboxTray />
       </main>
       <MarimbaWidget />
     </div>

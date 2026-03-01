@@ -59,16 +59,16 @@ CLASSIFICATION_RULES = """
 Classify each email below. Return ONLY a JSON object — no explanation.
 
 Format:
-{
+{{
   "results": [
-    {
+    {{
       "id": "<email id>",
       "category": "action_required | absence | weekly_schedule | ignore",
       "student_name": "<only for absence emails, else omit>",
       "group": "<only for absence emails e.g. '6B1', else omit>"
-    }
+    }}
   ]
-}
+}}
 
 Emails:
 {emails_block}

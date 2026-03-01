@@ -1,22 +1,36 @@
 import { useState } from 'react';
 import { useSchedule } from '../lib/hooks/useSchedule';
-import { type SchedulePeriod } from '../lib/api/client';
+import { useAbsences } from '../lib/hooks/useAbsences';
+import { useWeeklySchedule } from '../lib/hooks/useWeeklySchedule';
+import { type SchedulePeriod, type Absence, type ClassDisruption } from '../lib/api/client';
 import { MOCK_CLASS_BRIEFINGS, DEFAULT_CLASS_BRIEFING, type ClassBriefing } from '../lib/mockClassBriefings';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function groupIsAffected(disruption: ClassDisruption, group: string): boolean {
+  return disruption.groups_affected.some(
+    (g) => g.toLowerCase() === 'all' || g === group
+  );
+}
 
 // ── Class briefing panel ──────────────────────────────────────────────────────
 
 interface BriefingPanelProps {
   period: SchedulePeriod;
+  absentStudents: Absence[];
+  disruptions: ClassDisruption[];
   onClose: () => void;
 }
 
-function BriefingPanel({ period, onClose }: BriefingPanelProps) {
+function BriefingPanel({ period, absentStudents, disruptions, onClose }: BriefingPanelProps) {
   const raw = MOCK_CLASS_BRIEFINGS[period.group];
   const briefing: ClassBriefing = raw ?? {
     ...DEFAULT_CLASS_BRIEFING,
     group: period.group,
     subject: period.subject,
   };
+
+  const totalFlags = absentStudents.length + briefing.flags;
 
   return (
     <div className="mt-3 bg-stone-900 border border-stone-800 rounded-2xl p-5 space-y-4">
@@ -38,12 +52,32 @@ function BriefingPanel({ period, onClose }: BriefingPanelProps) {
         </button>
       </div>
 
+      {/* Disruption block — shown first if present */}
+      {disruptions.length > 0 && (
+        <div className="bg-amber-500/8 border border-amber-500/25 rounded-xl px-4 py-3 space-y-2">
+          <p className="text-amber-400/80 text-xs font-semibold uppercase tracking-wide">
+            Today's disruption
+          </p>
+          {disruptions.map((d, i) => (
+            <div key={i}>
+              <p className="text-amber-100 text-sm">{d.description}</p>
+              <p className="text-amber-400/60 text-xs mt-0.5">{d.time}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Quick stats */}
-      <div className="flex gap-3">
+      <div className="flex gap-3 flex-wrap">
         <span className="bg-stone-800 border border-stone-700/60 text-stone-400 text-xs px-2.5 py-1 rounded-full">
           {briefing.studentCount} students
         </span>
-        {briefing.flags > 0 ? (
+        {absentStudents.length > 0 && (
+          <span className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs px-2.5 py-1 rounded-full">
+            {absentStudents.length} absent
+          </span>
+        )}
+        {totalFlags > 0 ? (
           <span className="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs px-2.5 py-1 rounded-full">
             {briefing.flags} flag{briefing.flags !== 1 ? 's' : ''}
           </span>
@@ -53,6 +87,16 @@ function BriefingPanel({ period, onClose }: BriefingPanelProps) {
           </span>
         )}
       </div>
+
+      {/* Absent students */}
+      {absentStudents.length > 0 && (
+        <div className="bg-red-500/5 border border-red-500/10 rounded-xl px-4 py-3 space-y-1">
+          <p className="text-red-400/70 text-xs font-semibold uppercase tracking-wide mb-2">Absent today</p>
+          {absentStudents.map((a) => (
+            <p key={a.id} className="text-stone-300 text-sm">{a.student_name}</p>
+          ))}
+        </div>
+      )}
 
       <div className="border-t border-stone-800" />
 
@@ -74,7 +118,7 @@ function BriefingPanel({ period, onClose }: BriefingPanelProps) {
         </div>
       </div>
 
-      {/* Source links (mocked) */}
+      {/* Source links */}
       <div className="flex gap-2 pt-1">
         {briefing.sources.includes('Toddle') && (
           <button className="text-xs text-stone-600 hover:text-stone-400 border border-stone-800 hover:border-stone-700 px-3 py-1.5 rounded-lg transition-colors">
@@ -97,23 +141,30 @@ function BriefingPanel({ period, onClose }: BriefingPanelProps) {
 interface PeriodChipProps {
   period: SchedulePeriod;
   isActive: boolean;
+  absenceCount: number;
+  hasDisruption: boolean;
   onClick: () => void;
 }
 
-function PeriodChip({ period, isActive, onClick }: PeriodChipProps) {
+function PeriodChip({ period, isActive, absenceCount, hasDisruption, onClick }: PeriodChipProps) {
+  const base = 'relative flex-shrink-0 text-left rounded-xl px-3 py-2 min-w-[100px] border transition-colors';
+
+  const color = isActive
+    ? hasDisruption
+      ? 'bg-amber-500/15 border-amber-500/50'
+      : 'bg-stone-800 border-stone-600'
+    : hasDisruption
+      ? 'bg-amber-500/8 border-amber-500/30 hover:border-amber-500/50'
+      : 'bg-stone-900 border-stone-800 hover:border-stone-700';
+
   return (
-    <button
-      onClick={onClick}
-      className={`
-        flex-shrink-0 text-left rounded-xl px-3 py-2 min-w-[100px]
-        border transition-colors
-        ${isActive
-          ? 'bg-stone-800 border-stone-600'
-          : 'bg-stone-900 border-stone-800 hover:border-stone-700'
-        }
-      `}
-    >
-      <p className="text-stone-200 text-xs font-semibold">{period.group}</p>
+    <button onClick={onClick} className={`${base} ${color}`}>
+      {absenceCount > 0 && (
+        <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-red-400" />
+      )}
+      <p className={`text-xs font-semibold ${hasDisruption ? 'text-amber-100' : 'text-stone-200'}`}>
+        {period.group}
+      </p>
       <p className="text-stone-500 text-xs mt-0.5">{period.time}</p>
       {period.room && (
         <p className="text-stone-700 text-xs">{period.room}</p>
@@ -126,11 +177,12 @@ function PeriodChip({ period, isActive, onClick }: PeriodChipProps) {
 
 export function TodaySchedule() {
   const { data: schedule, isLoading } = useSchedule();
+  const { data: absences = [] } = useAbsences();
+  const { data: weeklySchedule } = useWeeklySchedule();
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
 
   if (isLoading || !schedule) return null;
 
-  // VITE_MOCK_SCHEDULE_DAY overrides the live day — for dev/testing only.
   const forcedDay = import.meta.env.VITE_MOCK_SCHEDULE_DAY
     ? parseInt(import.meta.env.VITE_MOCK_SCHEDULE_DAY as string, 10)
     : null;
@@ -141,6 +193,12 @@ export function TodaySchedule() {
 
   const todayEntry = schedule.classes.find((day) => day.day === currentDay);
   const periodsToday = isWeekend ? [] : (todayEntry?.periods ?? []);
+
+  // Disruptions that apply to today's schedule day
+  const todayDisruptions: ClassDisruption[] = (weeklySchedule?.class_disruptions ?? [])
+    .filter((d) => d.schedule_day === currentDay);
+
+  const disruptionCount = todayDisruptions.length;
 
   const dayLabel = isWeekend ? 'Weekend' : `Day ${currentDay}`;
 
@@ -156,29 +214,51 @@ export function TodaySchedule() {
 
   return (
     <div className="mb-8">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-1.5 h-1.5 rounded-full bg-stone-600" />
+      <div className="flex items-center gap-2 mb-1">
+        <div className={`w-1.5 h-1.5 rounded-full ${disruptionCount > 0 ? 'bg-amber-500/60' : 'bg-stone-600'}`} />
         <h2 className="text-stone-500 text-xs font-semibold tracking-widest uppercase">
           {sectionLabel}
         </h2>
       </div>
 
+      {/* Disruption subtitle — only when there's something today */}
+      {disruptionCount > 0 && (
+        <p className="text-amber-500/60 text-xs mb-3 pl-3.5">
+          {disruptionCount === 1
+            ? `1 disruption · tap a class to see details`
+            : `${disruptionCount} disruptions · tap a class to see details`}
+        </p>
+      )}
+      {disruptionCount === 0 && <div className="mb-3" />}
+
       {periodsToday.length > 0 ? (
         <>
           <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {periodsToday.map((period, index) => (
-              <PeriodChip
-                key={`${period.group}-${index}`}
-                period={period}
-                isActive={selectedGroup === period.group}
-                onClick={() => handleChipClick(period.group)}
-              />
-            ))}
+            {periodsToday.map((period, index) => {
+              const groupAbsences = absences.filter((a) => a.group_name === period.group);
+              const groupDisruptions = todayDisruptions.filter((d) =>
+                groupIsAffected(d, period.group)
+              );
+              return (
+                <PeriodChip
+                  key={`${period.group}-${index}`}
+                  period={period}
+                  isActive={selectedGroup === period.group}
+                  absenceCount={groupAbsences.length}
+                  hasDisruption={groupDisruptions.length > 0}
+                  onClick={() => handleChipClick(period.group)}
+                />
+              );
+            })}
           </div>
 
           {selectedPeriod && (
             <BriefingPanel
               period={selectedPeriod}
+              absentStudents={absences.filter((a) => a.group_name === selectedPeriod.group)}
+              disruptions={todayDisruptions.filter((d) =>
+                groupIsAffected(d, selectedPeriod.group)
+              )}
               onClose={() => setSelectedGroup(null)}
             />
           )}
