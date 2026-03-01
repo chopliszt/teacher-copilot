@@ -42,19 +42,64 @@ An always-present avatar allows for optional, natural voice interaction with a w
 
 ## Getting Started
 
-1. Copy `.env.example` to `.env`:
+### Backend Setup
+
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
+
+2. Copy `.env.example` to `.env`:
    ```bash
    cp .env.example .env
    ```
-2. Fill in your actual environment variables in `.env`
-3. Install dependencies (specific to your project)
-4. Run the application
+
+3. Fill in your actual environment variables in `.env`
+
+4. Install Python dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+5. Run the FastAPI backend server:
+   ```bash
+   python main.py
+   ```
+   
+   The server will start on `http://localhost:8000` with:
+   - API docs: `http://localhost:8000/api/docs`
+   - Health check: `http://localhost:8000/api/health`
+   - Priorities: `http://localhost:8000/api/priorities`
+   - Schedule: `http://localhost:8000/api/schedule`
+
+### Common Issues
+
+**Port already in use?**
+If you see `Address already in use`, kill the existing process:
+```bash
+lsof -i :8000
+kill -9 <PID>
+```
+
+Or use a different port:
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+```
+=======
 
 ## Project Structure
 
 - `.env.example` - Example environment variables (safe to commit)
 - `.gitignore` - Files and directories that should not be committed
 - `README.md` - This file
+- `CONTRIBUTING.md` - Contribution guidelines
+- `backend/` - FastAPI backend application
+  - `main.py` - Main FastAPI application
+  - `data/` - JSON data files (schedule, priorities)
+  - `tests/` - Unit tests
+  - `.env.example` - Backend environment variables template
+- `venv/` - Python virtual environment (gitignored)
+=======
 
 ## Contributing
 
