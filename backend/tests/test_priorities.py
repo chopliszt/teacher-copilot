@@ -18,8 +18,8 @@ from main import (
     _filter_tasks_by_schedule,
     _load_priority_data,
     _load_schedule_data,
-    _call_mistral_for_priorities,
 )
+from mistral_client import call_mistral as _call_mistral_for_priorities  # alias for legacy tests
 
 
 # Create a test client for the FastAPI app
@@ -115,20 +115,20 @@ class TestScheduleFiltering:
         
         # Mock current schedule day as day 1 (Monday)
         import main
-        original_get_current_schedule_day = main._get_current_schedule_day
-        main._get_current_schedule_day = lambda: 1  # Force day 1
-        
+        original_get_current_schedule_day = main.get_current_schedule_day
+        main.get_current_schedule_day = lambda: 1  # Force day 1
+
         try:
             filtered = _filter_tasks_by_schedule(tasks, schedule_data)
             filtered_titles = [task["title"] for task in filtered]
-            
+
             assert "Task for 8A1" in filtered_titles
             assert "Task for 9A1" in filtered_titles
             assert "Task for all" in filtered_titles
             assert "Task for 10A1" not in filtered_titles
-            
+
         finally:
-            main._get_current_schedule_day = original_get_current_schedule_day
+            main.get_current_schedule_day = original_get_current_schedule_day
 
 
 class TestDataLoading:
@@ -270,7 +270,7 @@ class TestMistralIntegration:
         async def mock_mistral(tasks, schedule, current_time):
             return ["urgent_1", "urgent_2", "important_1"]
 
-        monkeypatch.setattr("main._call_mistral_for_priorities", mock_mistral)
+        monkeypatch.setattr("mistral_client.call_mistral", mock_mistral)
 
         response = client.get("/api/priorities")
         assert response.status_code == 200
@@ -296,7 +296,7 @@ class TestMistralIntegration:
         async def mock_mistral_none(tasks, schedule, current_time):
             return None
 
-        monkeypatch.setattr("main._call_mistral_for_priorities", mock_mistral_none)
+        monkeypatch.setattr("mistral_client.call_mistral", mock_mistral_none)
 
         response = client.get("/api/priorities")
         assert response.status_code == 200

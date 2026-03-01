@@ -1,5 +1,4 @@
 import { useSchedule } from '../lib/hooks/useSchedule';
-import { getCurrentScheduleDay } from '../lib/utils/dateUtils';
 import { type SchedulePeriod } from '../lib/api/client';
 
 interface PeriodChipProps {
@@ -23,8 +22,7 @@ export function TodaySchedule() {
 
   if (isLoading || !schedule) return null;
 
-  const todayScheduleDay = getCurrentScheduleDay();
-  const todayEntry = schedule.classes.find((day) => day.day === todayScheduleDay);
+  const todayEntry = schedule.classes.find((day) => day.day === schedule.current_day);
   const periodsToday = todayEntry?.periods ?? [];
 
   return (
