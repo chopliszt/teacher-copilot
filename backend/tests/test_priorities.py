@@ -202,17 +202,13 @@ class TestAPIEndpoints:
 
 class TestErrorHandling:
     """Test error handling"""
-    
+
     def test_priorities_error_handling(self, monkeypatch):
-        """Test error handling in priorities endpoint"""
-        # Mock data loading to return None
-        def mock_load_data():
-            return None
-        
-        monkeypatch.setattr("main._load_priority_data", mock_load_data)
-        
+        """Schedule data unavailable → endpoint returns an error key (not 500)."""
+        monkeypatch.setattr("main._load_schedule_data", lambda: None)
+
         response = client.get("/api/priorities")
-        assert response.status_code == 200  # Still returns 200 with error message
+        assert response.status_code == 200  # graceful degradation, not a 500
         data = response.json()
         assert "error" in data
 
@@ -266,9 +262,13 @@ class TestMistralIntegration:
     }
 
     def test_mistral_path_returns_correct_structure(self, monkeypatch):
-        """Mistral-driven path: endpoint returns correct schema when Mistral provides 3 IDs"""
-        async def mock_mistral(tasks, schedule, current_time):
-            return ["urgent_1", "urgent_2", "important_1"]
+        """Mistral-driven path: endpoint returns correct schema when Mistral provides 3 items"""
+        async def mock_mistral(tasks, schedule, current_time, weekly_data=None):
+            return [
+                {"id": "urgent_1", "reason": "Most urgent grading deadline today"},
+                {"id": "urgent_2", "reason": "Parent meeting cannot be rescheduled"},
+                {"id": "important_1", "reason": "Lesson plan due before class"},
+            ]
 
         monkeypatch.setattr("mistral_client.call_mistral", mock_mistral)
 
@@ -281,7 +281,7 @@ class TestMistralIntegration:
         assert "count" in data
         assert data["count"] == 3
 
-        # Verify schema of each priority item
+        # Verify schema of each priority item including marimba_note
         for item in data["priorities"]:
             assert "id" in item
             assert "title" in item
@@ -290,6 +290,9 @@ class TestMistralIntegration:
             assert "due_date" in item
             assert "class" in item
             assert "subject" in item
+            assert "marimba_note" in item
+            assert isinstance(item["marimba_note"], str)
+            assert len(item["marimba_note"]) > 0
 
     def test_fallback_when_mistral_returns_none(self, monkeypatch):
         """Fallback path: scoring algorithm kicks in when Mistral returns None"""
@@ -317,6 +320,7 @@ class TestMistralIntegration:
                 self._SAMPLE_TASKS,
                 self._SAMPLE_SCHEDULE,
                 datetime.now(),
+                weekly_data=None,
             )
         )
         assert result is None

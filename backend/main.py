@@ -9,7 +9,7 @@ for priority management, classroom data, and AI-powered assistance.
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, UploadFile, File
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -23,7 +23,10 @@ from context_builder import build_context  # noqa: F401 (re-exported for tests)
 from mistral_client import call_mistral
 from schedule_day import get_current_schedule_day, set_schedule_day
 from prompts.weekly_schedule import extract_weekly_schedule
-from database import init_db, get_db, AbsenceRecord, ImportantEmailRecord, WeeklyScheduleRecord
+from prompts.voice import call_voice_mistral
+from tts import text_to_speech
+from stt import transcribe_audio
+from database import init_db, get_db, AbsenceRecord, ImportantEmailRecord, WeeklyScheduleRecord, ClassSessionRecord, UserTaskRecord
 from email_processor import EmailBatch, process_batch
 
 # Load environment variables
@@ -74,17 +77,27 @@ async def root() -> dict[str, str]:
 
 
 @app.get("/api/health")
-async def health_check() -> dict[str, str]:
+async def health_check() -> dict:
     """
-    Health check endpoint
-
-    Returns:
-        dict: Health status information
+    Health check endpoint.
+    Includes Mistral configuration status so you can verify the AI is wired up.
     """
+    api_key = os.getenv("MISTRAL_API_KEY", "")
+    el_key = os.getenv("ELEVENLABS_API_KEY", "")
+    el_voice = os.getenv("ELEVENLABS_VOICE_ID", "")
     return {
         "status": "healthy",
         "environment": os.getenv("ENVIRONMENT", "development"),
-        "api_version": "0.1.0"
+        "api_version": "0.1.0",
+        "mistral": {
+            "configured": bool(api_key),
+            "model_priorities": "mistral-large-latest",
+            "model_extraction": "mistral-small-latest",
+        },
+        "elevenlabs": {
+            "configured": bool(el_key and el_voice),
+            "voice_id_set": bool(el_voice),
+        },
     }
 
 
@@ -282,51 +295,124 @@ def _email_to_task(email: ImportantEmailRecord) -> Dict[str, Any]:
     }
 
 
+def _meeting_to_task(meeting: dict, idx: int) -> Dict[str, Any]:
+    """Convert a weekly-schedule meeting into the task format Mistral expects."""
+    return {
+        "id": f"meeting_{idx}",
+        "title": f"{meeting['description']} — {meeting.get('time', '')}",
+        "description": f"Location: {meeting.get('location', 'TBD')}",
+        "priority": "high" if meeting.get("mandatory") else "medium",
+        "due_date": "",
+        "estimated_time": "60 minutes",
+        "related_class": "All",
+        "related_subject": "Meeting",
+    }
+
+
+def _action_item_to_task(item: str, idx: int) -> Dict[str, Any]:
+    """Convert a weekly-schedule action item into the task format Mistral expects."""
+    return {
+        "id": f"action_{idx}",
+        "title": item[:80],
+        "description": item,
+        "priority": "medium",
+        "due_date": "",
+        "estimated_time": "10 minutes",
+        "related_class": "All",
+        "related_subject": "Announcement",
+    }
+
+
+def _user_task_to_task(record: "UserTaskRecord") -> Dict[str, Any]:
+    """Convert a user-created task record into the Mistral task format."""
+    return {
+        "id": f"user_{record.id}",
+        "title": record.title,
+        "description": record.title,
+        "priority": record.priority,
+        "due_date": record.due_date or "",
+        "estimated_time": "30 minutes",
+        "related_class": "All",
+        "related_subject": "Personal",
+    }
+
+
 @app.get("/api/priorities")
 async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     Get top 3 priority tasks for the teacher.
 
-    Pools tasks from two sources:
-      1. mock_priorities.json  (grading, lesson prep, etc.)
-      2. action_required emails from the DB (emails that need a response or action)
+    Pools tasks from real sources only:
+      1. User-added tasks (manual task inbox)
+      2. Action-required emails from the DB
+      3. Today's meetings from the weekly schedule
+      4. Action items from the weekly schedule (first 5)
 
-    Mistral ranks the combined pool and picks the top 3.
+    Mistral ranks the combined pool and picks the top 3, returning a reason
+    per task that surfaces as the Marimba note in the UI.
 
     Returns:
-        Dict: Top 3 priorities with metadata
+        Dict: Top 3 priorities with metadata and marimba_note
     """
     try:
-        # Load data
-        priority_data = _load_priority_data()
         schedule_data = _load_schedule_data()
 
-        if not priority_data or not schedule_data:
-            return {"error": "Priority data not available"}
+        if not schedule_data:
+            return {"error": "Schedule data not available"}
 
-        # Combine tasks from JSON + action-required emails from DB
         from sqlalchemy import select
+
+        # User-added tasks
+        user_task_records = db.execute(select(UserTaskRecord)).scalars().all()
+
+        # Action-required emails
         email_records = db.execute(
             select(ImportantEmailRecord).where(
                 ImportantEmailRecord.category == "action_required"
             )
         ).scalars().all()
 
+        # Weekly schedule data (meetings + action items)
+        current_schedule_day = get_current_schedule_day()
+        weekly_record = db.get(WeeklyScheduleRecord, "current")
+        weekly_data: Optional[Dict[str, Any]] = None
+        if weekly_record:
+            weekly_data = json.loads(weekly_record.data)
+
+        meeting_tasks: List[Dict[str, Any]] = []
+        action_tasks: List[Dict[str, Any]] = []
+        if weekly_data:
+            todays_meetings = [
+                m for m in weekly_data.get("meetings", [])
+                if m.get("schedule_day") == current_schedule_day
+            ]
+            meeting_tasks = [_meeting_to_task(m, i) for i, m in enumerate(todays_meetings)]
+            action_tasks = [
+                _action_item_to_task(item, i)
+                for i, item in enumerate(weekly_data.get("action_items", [])[:5])
+            ]
+
         all_tasks = (
-            priority_data.get("urgent_tasks", []) +
-            priority_data.get("important_tasks", []) +
-            priority_data.get("routine_tasks", []) +
-            [_email_to_task(e) for e in email_records]
+            [_user_task_to_task(r) for r in user_task_records] +
+            [_email_to_task(e) for e in email_records] +
+            meeting_tasks +
+            action_tasks
         )
 
         current_time = _get_current_time()
 
         # Try Mistral-powered prioritization first
-        mistral_ids = await call_mistral(all_tasks, schedule_data, current_time)
+        mistral_results = await call_mistral(all_tasks, schedule_data, current_time, weekly_data=weekly_data)
 
-        if mistral_ids:
+        reasons: Dict[str, str] = {}
+        if mistral_results:
             task_dict = {task["id"]: task for task in all_tasks}
-            top_3_tasks = [task_dict[tid] for tid in mistral_ids if tid in task_dict]
+            top_3_tasks = []
+            for item in mistral_results:
+                tid = item["id"]
+                if tid in task_dict:
+                    top_3_tasks.append(task_dict[tid])
+                    reasons[tid] = item["reason"]
         else:
             # Fallback: schedule-filter + scoring algorithm
             filtered_tasks = _filter_tasks_by_schedule(all_tasks, schedule_data)
@@ -341,22 +427,27 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
             scored_tasks.sort(key=lambda x: x["score"], reverse=True)
             top_3_tasks = [task["task"] for task in scored_tasks[:3]]
 
-        # Format response (schema unchanged — frontend safe)
+        # Format response — includes marimba_note when Mistral provided a reason
+        priorities_out = []
+        for task in top_3_tasks:
+            item: Dict[str, Any] = {
+                "id": task["id"],
+                "title": task["title"],
+                "priority": task["priority"],
+                "estimated_time": task.get("estimated_time", "Unknown"),
+                "due_date": task.get("due_date", ""),
+                "class": task.get("related_class", ""),
+                "subject": task.get("related_subject", ""),
+            }
+            reason = reasons.get(task["id"])
+            if reason:
+                item["marimba_note"] = reason
+            priorities_out.append(item)
+
         response = {
-            "priorities": [
-                {
-                    "id": task["id"],
-                    "title": task["title"],
-                    "priority": task["priority"],
-                    "estimated_time": task.get("estimated_time", "Unknown"),
-                    "due_date": task.get("due_date", ""),
-                    "class": task.get("related_class", ""),
-                    "subject": task.get("related_subject", "")
-                }
-                for task in top_3_tasks
-            ],
+            "priorities": priorities_out,
             "generated_at": datetime.now().isoformat(),
-            "count": len(top_3_tasks)
+            "count": len(priorities_out)
         }
 
         return response
@@ -456,6 +547,62 @@ async def get_important_emails(db: Session = Depends(get_db)) -> List[Dict[str, 
     ]
 
 
+class AddTaskRequest(BaseModel):
+    title: str
+    priority: str = "medium"   # high / medium / low
+    due_date: Optional[str] = None  # YYYY-MM-DD
+
+
+@app.post("/api/tasks")
+async def add_task(body: AddTaskRequest, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Add a teacher-created task to the priority pool."""
+    import uuid
+    record = UserTaskRecord(
+        id=str(uuid.uuid4()),
+        title=body.title,
+        priority=body.priority if body.priority in ("high", "medium", "low") else "medium",
+        due_date=body.due_date,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add(record)
+    db.commit()
+    return {
+        "id": record.id,
+        "title": record.title,
+        "priority": record.priority,
+        "due_date": record.due_date,
+        "created_at": record.created_at,
+    }
+
+
+@app.get("/api/tasks")
+async def list_tasks(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    """Return all teacher-created tasks."""
+    from sqlalchemy import select
+    records = db.execute(select(UserTaskRecord)).scalars().all()
+    return [
+        {
+            "id": r.id,
+            "title": r.title,
+            "priority": r.priority,
+            "due_date": r.due_date,
+            "created_at": r.created_at,
+        }
+        for r in records
+    ]
+
+
+@app.delete("/api/tasks/{task_id}")
+async def delete_task(task_id: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Delete a teacher-created task."""
+    record = db.get(UserTaskRecord, task_id)
+    if not record:
+        return {"error": "Task not found"}
+    db.delete(record)
+    db.commit()
+    return {"deleted": task_id}
+
+
 class WeeklyScheduleRequest(BaseModel):
     document_text: str
 
@@ -515,6 +662,224 @@ async def get_weekly_schedule(db: Session = Depends(get_db)) -> Dict[str, Any]:
             "absences": [],
         }
     return json.loads(record.data)
+
+
+class LogSessionRequest(BaseModel):
+    notes: str
+    what_worked: Optional[str] = None
+
+
+@app.post("/api/class/{group}/session")
+async def log_class_session(
+    group: str,
+    body: LogSessionRequest,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Log (or update) a session note for a class group.
+
+    Upserts by id = "{group}_{date}_{schedule_day}".
+    Returns the saved record.
+    """
+    from datetime import date as _date
+
+    today = _date.today().isoformat()
+    sday = get_current_schedule_day()
+    record_id = f"{group}_{today}_{sday}"
+    now_str = datetime.now(timezone.utc).isoformat()
+
+    existing = db.get(ClassSessionRecord, record_id)
+    if existing:
+        existing.notes = body.notes
+        existing.what_worked = body.what_worked
+        existing.created_at = now_str
+    else:
+        db.add(ClassSessionRecord(
+            id=record_id,
+            group=group,
+            schedule_day=sday,
+            date=today,
+            notes=body.notes,
+            what_worked=body.what_worked,
+            created_at=now_str,
+        ))
+    db.commit()
+
+    record = db.get(ClassSessionRecord, record_id)
+    return {
+        "id": record.id,
+        "group": record.group,
+        "schedule_day": record.schedule_day,
+        "date": record.date,
+        "notes": record.notes,
+        "what_worked": record.what_worked,
+        "created_at": record.created_at,
+    }
+
+
+@app.get("/api/class/{group}/last-session")
+async def get_last_session(
+    group: str,
+    db: Session = Depends(get_db),
+) -> Optional[Dict[str, Any]]:
+    """
+    Return the most recent session log for a class group, or null if none exists.
+    """
+    from sqlalchemy import select, desc
+
+    record = db.execute(
+        select(ClassSessionRecord)
+        .where(ClassSessionRecord.group == group)
+        .order_by(desc(ClassSessionRecord.date), desc(ClassSessionRecord.schedule_day))
+        .limit(1)
+    ).scalars().first()
+
+    if not record:
+        return None
+
+    return {
+        "id": record.id,
+        "group": record.group,
+        "schedule_day": record.schedule_day,
+        "date": record.date,
+        "notes": record.notes,
+        "what_worked": record.what_worked,
+        "created_at": record.created_at,
+    }
+
+
+def _build_voice_context(
+    schedule_data: Dict[str, Any],
+    all_tasks: List[Dict[str, Any]],
+    weekly_data: Optional[Dict[str, Any]],
+) -> str:
+    """Build a concise plain-text context summary for the voice Mistral call."""
+    current_day = get_current_schedule_day()
+
+    today_periods: List[Dict[str, Any]] = []
+    for day_sched in schedule_data.get("classes", []):
+        if day_sched.get("day") == current_day:
+            today_periods = day_sched.get("periods", [])
+            break
+
+    homeroom = schedule_data.get("homeroom", {})
+    classes_parts = []
+    if homeroom:
+        classes_parts.append(f"{homeroom.get('group')} (homeroom) at {homeroom.get('time')}")
+    for p in today_periods:
+        classes_parts.append(f"{p.get('group')} at {p.get('time')}")
+    classes_str = ", ".join(classes_parts) or "no classes today"
+
+    tasks_str = "\n".join(
+        f"- {t['title']} ({t['priority']})" for t in all_tasks[:8]
+    ) or "no tasks"
+
+    meetings_str = ""
+    if weekly_data:
+        meetings = [
+            m for m in weekly_data.get("meetings", [])
+            if m.get("schedule_day") == current_day
+        ]
+        if meetings:
+            meetings_str = "\nToday's meetings: " + ", ".join(
+                f"{m.get('description')} at {m.get('time')}" for m in meetings
+            )
+
+    return (
+        f"Schedule day {current_day}. Today's classes: {classes_str}.{meetings_str}\n\n"
+        f"Pending tasks:\n{tasks_str}"
+    )
+
+
+@app.post("/api/voice")
+async def handle_voice(
+    audio: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Handle a teacher's spoken query routed through Marimba.
+
+    Pipeline:
+      1. Receive raw audio from browser (WebM/Opus or MP4/AAC on Safari)
+      2. Voxtral Mini transcribes it → plain text
+      3. Build today's context (schedule + tasks + meetings)
+      4. Mistral Large reasons about the query → {response, action?}
+      5. ElevenLabs TTS converts the response → base64 MP3 (optional)
+      6. Return {text, audio?, action?} to the frontend
+
+    Same MISTRAL_API_KEY is used for both Voxtral and Mistral Large.
+    """
+    audio_bytes = await audio.read()
+    transcript = await transcribe_audio(audio_bytes, audio.filename or "recording.webm")
+
+    if not transcript:
+        return {"error": "Empty transcript"}
+
+    try:
+        schedule_data = _load_schedule_data() or {}
+
+        from sqlalchemy import select
+        user_task_records = db.execute(select(UserTaskRecord)).scalars().all()
+        email_records = db.execute(
+            select(ImportantEmailRecord).where(
+                ImportantEmailRecord.category == "action_required"
+            )
+        ).scalars().all()
+
+        weekly_record = db.get(WeeklyScheduleRecord, "current")
+        weekly_data: Optional[Dict[str, Any]] = None
+        if weekly_record:
+            weekly_data = json.loads(weekly_record.data)
+
+        all_tasks = (
+            [_user_task_to_task(r) for r in user_task_records] +
+            [_email_to_task(e) for e in email_records]
+        )
+
+        context = _build_voice_context(schedule_data, all_tasks, weekly_data)
+
+        mistral_result = await call_voice_mistral(transcript, context)
+
+        if not mistral_result:
+            return {
+                "text": "Lo siento, profe — no puedo conectarme ahora mismo. Intenta de nuevo.",
+                "audio": None,
+                "action": None,
+            }
+
+        spoken_text = mistral_result["response"]
+        action = mistral_result.get("action")
+
+        # If action is add_task, persist it to DB immediately
+        if action and action.get("type") == "add_task":
+            import uuid
+            task_title = action.get("title", "").strip()
+            task_priority = action.get("priority", "medium")
+            if task_title and task_priority in ("high", "medium", "low"):
+                record = UserTaskRecord(
+                    id=str(uuid.uuid4()),
+                    title=task_title,
+                    priority=task_priority,
+                    due_date=None,
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                )
+                db.add(record)
+                db.commit()
+
+        audio_b64 = await text_to_speech(spoken_text)
+
+        return {
+            "text": spoken_text,
+            "audio": audio_b64,
+            "action": action,
+        }
+
+    except Exception:
+        return {
+            "text": "Algo salió mal, profe. Intenta de nuevo.",
+            "audio": None,
+            "action": None,
+        }
 
 
 if __name__ == "__main__":
