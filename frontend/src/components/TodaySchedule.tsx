@@ -22,17 +22,26 @@ export function TodaySchedule() {
 
   if (isLoading || !schedule) return null;
 
+  const jsDay = new Date().getDay();
+  const isWeekend = jsDay === 0 || jsDay === 6;
+
   const todayEntry = schedule.classes.find((day) => day.day === schedule.current_day);
-  const periodsToday = todayEntry?.periods ?? [];
+  const periodsToday = isWeekend ? [] : (todayEntry?.periods ?? []);
+
+  const dayLabel = isWeekend
+    ? 'Weekend'
+    : `Day ${schedule.current_day}`;
+
+  const sectionLabel = periodsToday.length > 0
+    ? `Today's Classes · ${dayLabel} · ${periodsToday.length} period${periodsToday.length !== 1 ? 's' : ''}`
+    : `Today's Classes · ${dayLabel}`;
 
   return (
     <div className="mb-8">
       <div className="flex items-center gap-2 mb-3">
         <div className="w-1.5 h-1.5 rounded-full bg-stone-600" />
         <h2 className="text-stone-500 text-xs font-semibold tracking-widest uppercase">
-          {periodsToday.length > 0
-            ? `Today's Classes · ${periodsToday.length} period${periodsToday.length !== 1 ? 's' : ''}`
-            : "Today's Classes"}
+          {sectionLabel}
         </h2>
       </div>
 
@@ -43,7 +52,9 @@ export function TodaySchedule() {
           ))}
         </div>
       ) : (
-        <p className="text-stone-700 text-sm">No classes scheduled today.</p>
+        <p className="text-stone-700 text-sm">
+          {isWeekend ? 'Enjoy the rest.' : 'No classes scheduled today.'}
+        </p>
       )}
     </div>
   );
