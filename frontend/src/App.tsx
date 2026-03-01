@@ -1,5 +1,6 @@
 import { usePriorities } from './lib/hooks/usePriorities';
 import { MarimbaGreeting } from './components/MarimbaGreeting';
+import { MarimbaWidget } from './components/MarimbaWidget';
 import { PriorityList } from './components/PriorityList';
 import { TodaySchedule } from './components/TodaySchedule';
 
@@ -51,6 +52,7 @@ export default function App() {
         <TodaySchedule />
         <PriorityList priorities={priorities} />
       </main>
+      <MarimbaWidget />
     </div>
   );
 }

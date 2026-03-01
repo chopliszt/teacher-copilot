@@ -20,24 +20,13 @@ export function MarimbaGreeting({ priorityCount }: MarimbaGreetingProps) {
 
   return (
     <header className="mb-10">
-      <div className="flex items-start gap-4">
-        <div
-          className="flex-shrink-0 w-12 h-12 rounded-full bg-amber-500/15 border border-amber-500/25 flex items-center justify-center text-2xl"
-          role="img"
-          aria-label="Marimba, your AI companion"
-        >
-          🐕
-        </div>
-        <div>
-          <p className="text-stone-500 text-xs font-semibold tracking-widest uppercase">
-            {greeting} · {todayLabel}
-          </p>
-          <h1 className="text-stone-50 text-xl font-bold mt-1">Marimba</h1>
-          <p className="text-stone-400 mt-1 text-sm leading-relaxed">
-            {marimbaSays}
-          </p>
-        </div>
-      </div>
+      <p className="text-stone-500 text-xs font-semibold tracking-widest uppercase">
+        {greeting} · {todayLabel}
+      </p>
+      <h1 className="text-stone-50 text-xl font-bold mt-1">Marimba</h1>
+      <p className="text-stone-400 mt-1 text-sm leading-relaxed">
+        {marimbaSays}
+      </p>
     </header>
   );
 }
