@@ -16,7 +16,9 @@ from main import (
     _calculate_priority_score,
     _parse_estimated_time,
     _filter_tasks_by_schedule,
-    _load_priority_data
+    _load_priority_data,
+    _load_schedule_data,
+    _call_mistral_for_priorities,
 )
 
 
@@ -213,6 +215,118 @@ class TestErrorHandling:
         assert response.status_code == 200  # Still returns 200 with error message
         data = response.json()
         assert "error" in data
+
+
+class TestMistralIntegration:
+    """Test Mistral-powered prioritization and fallback behaviour"""
+
+    _SAMPLE_TASKS = [
+        {
+            "id": "urgent_1",
+            "title": "Grade projects",
+            "description": "Grade final projects",
+            "priority": "high",
+            "due_date": "2026-01-15",
+            "estimated_time": "2 hours",
+            "related_class": "9A2",
+            "related_subject": "Diseño Digital",
+        },
+        {
+            "id": "urgent_2",
+            "title": "Parent meeting",
+            "description": "Meeting with parent",
+            "priority": "high",
+            "due_date": "2026-01-16",
+            "estimated_time": "30 minutes",
+            "related_class": "8A1",
+            "related_subject": "Digital Design",
+        },
+        {
+            "id": "important_1",
+            "title": "Prepare lesson plan",
+            "description": "Create lesson",
+            "priority": "medium",
+            "due_date": "2026-01-18",
+            "estimated_time": "1 hour",
+            "related_class": "10A1",
+            "related_subject": "Diseño Digital",
+        },
+    ]
+
+    _SAMPLE_SCHEDULE = {
+        "homeroom": {"time": "7:30 - 7:50am", "room": "C203", "group": "9A2"},
+        "classes": [
+            {
+                "day": 1,
+                "periods": [
+                    {"time": "7:50am", "subject": "Digital Design", "room": "Codingspace", "group": "8A1"},
+                ],
+            }
+        ],
+    }
+
+    def test_mistral_path_returns_correct_structure(self, monkeypatch):
+        """Mistral-driven path: endpoint returns correct schema when Mistral provides 3 IDs"""
+        async def mock_mistral(tasks, schedule, current_time):
+            return ["urgent_1", "urgent_2", "important_1"]
+
+        monkeypatch.setattr("main._call_mistral_for_priorities", mock_mistral)
+
+        response = client.get("/api/priorities")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "priorities" in data
+        assert "generated_at" in data
+        assert "count" in data
+        assert data["count"] == 3
+
+        # Verify schema of each priority item
+        for item in data["priorities"]:
+            assert "id" in item
+            assert "title" in item
+            assert "priority" in item
+            assert "estimated_time" in item
+            assert "due_date" in item
+            assert "class" in item
+            assert "subject" in item
+
+    def test_fallback_when_mistral_returns_none(self, monkeypatch):
+        """Fallback path: scoring algorithm kicks in when Mistral returns None"""
+        async def mock_mistral_none(tasks, schedule, current_time):
+            return None
+
+        monkeypatch.setattr("main._call_mistral_for_priorities", mock_mistral_none)
+
+        response = client.get("/api/priorities")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Response structure must be identical regardless of path
+        assert "priorities" in data
+        assert "generated_at" in data
+        assert "count" in data
+
+    def test_call_mistral_returns_none_without_api_key(self, monkeypatch):
+        """_call_mistral_for_priorities returns None when MISTRAL_API_KEY is unset"""
+        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+
+        import asyncio
+        result = asyncio.get_event_loop().run_until_complete(
+            _call_mistral_for_priorities(
+                self._SAMPLE_TASKS,
+                self._SAMPLE_SCHEDULE,
+                datetime.now(),
+            )
+        )
+        assert result is None
+
+    def test_load_schedule_data(self):
+        """_load_schedule_data returns valid schedule with required keys"""
+        data = _load_schedule_data()
+        assert data is not None
+        assert "homeroom" in data
+        assert "classes" in data
 
 
 if __name__ == "__main__":
