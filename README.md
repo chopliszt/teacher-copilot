@@ -240,9 +240,9 @@ teacher-pilot-mistral/
 
 ## Getting Started
 
-### Option A - Docker (recommended for the Pi)
+### Option A - Docker (recommended for home server)
 
-See the [Deploy](#deploy-raspberry-pi--cloudflare) section below.
+See the [Deploy](#deploy-home-server--cloudflare) section below.
 
 ### Option B - Local development
 
@@ -303,9 +303,9 @@ pytest tests/ -v
 
 ---
 
-## Deploy (Raspberry Pi + Cloudflare)
+## Deploy (Home Server + Cloudflare)
 
-The production setup runs entirely on a home Raspberry Pi 5. A Cloudflare Tunnel exposes the app publicly without port forwarding or a static IP, routing `marimba.truvadur.com` straight to the Pi over an encrypted tunnel.
+The production setup runs entirely on a home server. A Cloudflare Tunnel exposes the app publicly without port forwarding or a static IP, routing `your-domain.com` straight to the server over an encrypted tunnel.
 
 ```
 Internet → Cloudflare Edge → Tunnel (cloudflared) → nginx (frontend:80)
@@ -318,15 +318,15 @@ Internet → Cloudflare Edge → Tunnel (cloudflared) → nginx (frontend:80)
 ### One-time setup - Cloudflare Tunnel
 
 1. Go to [Cloudflare Zero Trust](https://one.dash.cloudflare.com) → **Networks → Tunnels → Create a tunnel**
-2. Choose **Cloudflared**, name it (e.g. `marimba-pi`)
+2. Choose **Cloudflared**, name it (e.g. `marimba-server`)
 3. On the install screen, copy just the **token** (the long string after `--token`)
-4. Add a **Public Hostname**: hostname `marimba.truvadur.com` → service type `HTTP`, URL `frontend:80`
+4. Add a **Public Hostname**: hostname `your-domain.com` → service type `HTTP`, URL `frontend:80`
 5. Save
 
 ### Deploy
 
 ```bash
-# On the Pi - first time
+# On the server - first time
 git clone <repo> teacher-pilot-mistral
 cd teacher-pilot-mistral
 cp .env.example .env
@@ -338,7 +338,7 @@ docker compose up -d --build
 
 All three containers start with `restart: unless-stopped`, which means:
 - If a container crashes → Docker restarts it automatically
-- If the Pi reboots → Docker starts on boot and brings everything back up
+- If the server reboots → Docker starts on boot and brings everything back up
 - The only way containers stay stopped is if you explicitly run `docker compose stop`
 
 ### Useful commands
@@ -351,7 +351,7 @@ docker compose restart backend  # apply a backend change without rebuilding
 # Pull latest code and rebuild
 git pull && docker compose up -d --build
 
-# Local access (bypasses Cloudflare - useful for debugging on the Pi)
+# Local access (bypasses Cloudflare - useful for debugging on the server)
 # http://localhost:8080
 ```
 
