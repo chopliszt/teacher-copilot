@@ -38,15 +38,50 @@ Thank you for contributing to TeacherPilot! To maintain code quality and consist
 
 ## JavaScript/TypeScript Standards (Frontend)
 
+> **Visual Guidelines:** All UI changes must follow [`DESIGN.md`](./DESIGN.md) — the app's design language document.
+
 ### 🦄 TypeScript Requirements
 - **Strict Typing**: Enable strict TypeScript compilation
-- **Interface Naming**: `PascalCase` with `I` prefix (e.g., `IStudent`, `IClassroom`)
-- **Type Aliases**: Use for complex types (e.g., `type Grade = 'A' | 'B' | 'C' | 'D' | 'F'`)
+- **Interface Naming**: `PascalCase` without prefix (e.g., `PriorityListProps`, `MarimbaWidgetProps`)
+- **Type Aliases**: Use for unions and complex types (e.g., `type MarimbaState = 'idle' | 'listening' | ...`)
+- **Zod Schemas**: All API responses are validated with Zod schemas in `lib/api/client.ts`
+
+### 📐 Function Style
+- **Prefer `function` declarations** over arrow functions for components and named functions:
+  ```tsx
+  // ✅ Good — clear, hoisted, readable
+  function PriorityCard({ priority, rank }: PriorityCardProps) { ... }
+
+  // ❌ Avoid — harder to scan, not hoisted
+  const PriorityCard = ({ priority, rank }: PriorityCardProps) => { ... }
+  ```
+- Arrow functions are acceptable for **inline callbacks** (e.g., `.map()`, `.filter()`, event handlers).
 
 ### 🎨 React Specific
 - **Component Naming**: `PascalCase` for components (e.g., `ClassroomCard.tsx`)
-- **Hooks**: Use custom hooks with `use` prefix (e.g., `useStudentData`)
-- **Props**: Always type component props using interfaces
+- **One component per file** for top-level components. Small helper components (like `EmptyState`, `ThinkingDots`) can live in the same file when they are only used there.
+- **Hooks**: Use custom hooks with `use` prefix (e.g., `useVoice`, `useSchedule`)
+- **Props**: Always type component props using interfaces, named `ComponentNameProps`
+- **State Management**: Use React's `useState` + `useCallback`. No external state library needed.
+- **Data Fetching**: Use `@tanstack/react-query` for all API calls. Never `fetch` directly in components.
+
+### 🎯 Voice Actions & Skills
+When adding a new Marimba "skill" (voice-triggered action), you must update **three files**:
+1. **Backend prompt** (`backend/prompts/voice.py`) — teach Mistral the new action type and JSON shape
+2. **Frontend schema** (`frontend/src/lib/api/client.ts`) — add the new type to `VoiceActionSchema`
+3. **Frontend handler** (`frontend/src/App.tsx`) — handle the new action in `handleVoiceAction`
+
+After adding a skill, add eval cases in `backend/tests/evals/run_voice_evals.py` and run them.
+
+### 🖼️ Icons & Visual Elements
+- **Never use emojis as UI controls** — see [`DESIGN.md`](./DESIGN.md) for details
+- Use **inline SVGs** with `stroke="currentColor"`, `strokeLinecap="round"`, `strokeLinejoin="round"`
+- The only allowed emoji is 🦊 (Marimba's avatar identity)
+
+### 🔊 Audio Feedback
+- Use the **Web Audio API** to generate tones for UI feedback — never load external audio files for blips and clicks
+- Keep sounds subtle: short duration (80–150ms), low volume (0.08–0.15)
+- **Note:** This rule is for UI sounds only. Content audio (meeting recordings, TTS playback) uses real audio files/streams.
 
 ## Git & Commit Guidelines
 
