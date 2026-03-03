@@ -50,6 +50,9 @@ export default function App() {
 
   // Voice-triggered class briefing state
   const [voiceOpenGroup, setVoiceOpenGroup] = useState<string | null>(null);
+  const [voiceOpenPriority, setVoiceOpenPriority] = useState<string | null>(null);
+  // Counter that increments each time "close_all" is received — children watch this
+  const [closeAllCounter, setCloseAllCounter] = useState(0);
 
   const handleVoiceAction = useCallback((action: VoiceAction) => {
     if (action.type === 'open_class' && action.group) {
@@ -58,6 +61,15 @@ export default function App() {
       setTimeout(() => {
         document.getElementById('today-schedule')?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
+    } else if (action.type === 'open_priority' && action.id) {
+      setVoiceOpenPriority(action.id);
+      setTimeout(() => {
+        document.getElementById('priorities-section')?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    } else if (action.type === 'close_all') {
+      setVoiceOpenGroup(null);
+      setVoiceOpenPriority(null);
+      setCloseAllCounter((prev) => prev + 1);
     }
     // add_task: backend already saved it; useVoice invalidates queries automatically
   }, []);
@@ -77,10 +89,12 @@ export default function App() {
       <main className="max-w-4xl mx-auto px-4 py-10 sm:px-6 lg:px-8">
         <MarimbaGreeting priorityCount={priorities.length} />
         <div id="today-schedule">
-          <TodaySchedule openGroup={voiceOpenGroup} />
+          <TodaySchedule openGroup={voiceOpenGroup} closeAllCounter={closeAllCounter} />
         </div>
         <FridayBanner hasWeeklyData={hasWeeklyData} />
-        <PriorityList priorities={priorities} />
+        <div id="priorities-section">
+          <PriorityList priorities={priorities} openPriorityId={voiceOpenPriority} closeAllCounter={closeAllCounter} />
+        </div>
         <UserTaskSection />
         <InboxTray />
       </main>

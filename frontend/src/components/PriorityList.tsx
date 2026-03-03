@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { type PriorityItem } from '../lib/api/client';
 import { PriorityCard } from './PriorityCard';
 import { ActiveCard } from './ActiveCard';
 
 interface PriorityListProps {
   priorities: PriorityItem[];
+  openPriorityId?: string | null;
+  closeAllCounter?: number;
 }
 
 function EmptyState() {
@@ -21,9 +23,20 @@ function EmptyState() {
   );
 }
 
-export function PriorityList({ priorities }: PriorityListProps) {
+export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }: PriorityListProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
+  
+  useEffect(() => {
+    if (openPriorityId !== undefined) {
+      setActiveId(openPriorityId);
+    }
+  }, [openPriorityId]);
+
+  // Respond to close_all — clear active card
+  useEffect(() => {
+    if (closeAllCounter > 0) setActiveId(null);
+  }, [closeAllCounter]);
 
   const remaining = priorities.filter((p) => !doneIds.has(p.id));
   const active = remaining.find((p) => p.id === activeId);

@@ -864,6 +864,12 @@ async def handle_voice(
     try:
         schedule_data = _load_schedule_data() or {}
 
+        from database import (
+            ImportantEmailRecord,
+            UserTaskRecord,
+            VoiceLogRecord,
+            WeeklyScheduleRecord,
+        )
         from sqlalchemy import select
 
         user_task_records = db.execute(select(UserTaskRecord)).scalars().all()
@@ -916,6 +922,19 @@ async def handle_voice(
                 )
                 db.add(record)
                 db.commit()
+
+        # Log the interaction for Evals
+        import uuid
+
+        log_record = VoiceLogRecord(
+            id=str(uuid.uuid4()),
+            transcript=transcript,
+            mistral_response=mistral_result.get("raw_json", "{}"),
+            parsed_action=action.get("type") if action else None,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        db.add(log_record)
+        db.commit()
 
         audio_b64 = await text_to_speech(spoken_text)
 

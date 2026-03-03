@@ -252,10 +252,11 @@ function PeriodChip({ period, isActive, absenceCount, hasDisruption, onClick }: 
 // ── TodaySchedule ─────────────────────────────────────────────────────────────
 
 interface TodayScheduleProps {
-  openGroup?: string | null;  // voice-triggered: open this group's briefing
+  openGroup?: string | null;       // voice-triggered: open this group's briefing
+  closeAllCounter?: number;        // increments on close_all action
 }
 
-export function TodaySchedule({ openGroup }: TodayScheduleProps = {}) {
+export function TodaySchedule({ openGroup, closeAllCounter = 0 }: TodayScheduleProps) {
   const { data: schedule, isLoading } = useSchedule();
   const { data: absences = [] } = useAbsences();
   const { data: weeklySchedule } = useWeeklySchedule();
@@ -265,6 +266,11 @@ export function TodaySchedule({ openGroup }: TodayScheduleProps = {}) {
   useEffect(() => {
     if (openGroup) setSelectedGroup(openGroup);
   }, [openGroup]);
+
+  // Respond to close_all — clear internal state
+  useEffect(() => {
+    if (closeAllCounter > 0) setSelectedGroup(null);
+  }, [closeAllCounter]);
 
   if (isLoading || !schedule) return null;
 

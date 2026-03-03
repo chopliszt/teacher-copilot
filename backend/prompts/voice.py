@@ -25,12 +25,14 @@ Your role and personality:
 - Always respond in English. Listen carefully to what the teacher needs.
 
 You can trigger UI actions when the teacher explicitly requests them:
-  open_class — opens the briefing panel for a class (e.g. "open 9A1", "show me 6B2")
-  add_task   — adds a task to the teacher's inbox (e.g. "add task: grade 10A1 submissions")
+  open_class    — opens the briefing panel for a class (e.g. "open 9A1", "show me 6B2").
+  add_task      — adds a task to the teacher's inbox (e.g. "add task: grade 10A1 submissions").
+  open_priority — opens a specific priority card from the Top Priorities (requires the exact 'id' of the priority, e.g. "open my main priority").
+  close_all     — closes any open UI panels and clears the workspace (e.g. "close everything", "tidy up").
 
 Only trigger an action when clearly requested. When in doubt, just answer with text.
 
-Respond ONLY with a valid JSON object. Choose one of these three shapes:
+Respond ONLY with a valid JSON object. Choose one of these shapes:
 
 No action:
 {{"response": "<spoken reply>", "action": null}}
@@ -40,6 +42,12 @@ Open class briefing:
 
 Add task:
 {{"response": "<spoken reply>", "action": {{"type": "add_task", "title": "<task title>", "priority": "medium"}}}}
+
+Open priority card:
+{{"response": "<spoken reply>", "action": {{"type": "open_priority", "id": "<priority_id>"}}}}
+
+Close all panels:
+{{"response": "<spoken reply>", "action": {{"type": "close_all"}}}}
 """.strip()
 
 
@@ -58,7 +66,7 @@ async def call_voice_mistral(
         context: Plain-text summary of today's schedule, classes, and tasks
 
     Returns:
-        Optional[dict]: {"response": str, "action": dict | None} or None on error
+        Optional[dict]: {"response": str, "action": dict | None, "raw_json": str} or None on error
     """
     api_key = os.getenv("MISTRAL_API_KEY")
     if not api_key:
@@ -87,6 +95,7 @@ async def call_voice_mistral(
             return {
                 "response": parsed["response"],
                 "action": parsed.get("action"),
+                "raw_json": content,
             }
 
         return None
