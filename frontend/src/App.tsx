@@ -74,7 +74,7 @@ export default function App() {
     // add_task: backend already saved it; useVoice invalidates queries automatically
   }, []);
 
-  const { marimbaState, toggleListening, isSupported, lastResponse } = useVoice({
+  const { marimbaState, toggleListening, discardRecording, isSupported, lastResponse } = useVoice({
     onAction: handleVoiceAction,
   });
 
@@ -102,6 +102,7 @@ export default function App() {
         state={marimbaState}
         isSupported={isSupported}
         onMicClick={toggleListening}
+        onDiscard={discardRecording}
         lastResponse={lastResponse}
       />
     </div>

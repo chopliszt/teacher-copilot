@@ -19,6 +19,11 @@ from datetime import datetime
 # Ensure backend module is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+# Load .env so MISTRAL_API_KEY is available outside of FastAPI
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+
 from context_builder import build_context
 from prompts.voice import call_voice_mistral
 

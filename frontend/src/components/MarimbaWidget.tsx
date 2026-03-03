@@ -1,18 +1,79 @@
 // ── State machine ────────────────────────────────────────────────────────────
 //
 //  idle       Default. Marimba breathes slowly.
-//  listening  Mic is active. Amber ring pulses. Tap again to stop.
+//  listening  Mic is active. Amber ring pulses. Tap again to send.
 //  thinking   Voxtral + Mistral processing. Dots bounce.
 //  speaking   ElevenLabs audio playing. Avatar pulses.
 //
 
 export type MarimbaState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
+// ── Subtle audio feedback ────────────────────────────────────────────────────
+
+function playTone(frequency: number, durationMs: number, volume = 0.15): void {
+  try {
+    const ctx = new AudioContext();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    oscillator.type = 'sine';
+    oscillator.frequency.value = frequency;
+    gain.gain.value = volume;
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
+
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + durationMs / 1000);
+  } catch {
+    // Audio not available — fail silently
+  }
+}
+
+function playStartTone(): void {
+  playTone(600, 100, 0.12);
+  setTimeout(() => playTone(900, 120, 0.12), 80);
+}
+
+function playSendTone(): void {
+  playTone(1200, 80, 0.1);
+}
+
+function playDiscardTone(): void {
+  playTone(400, 150, 0.08);
+}
+
+// ── Minimal SVG icons ────────────────────────────────────────────────────────
+
+// Upward arrow — "send" feel, soft and minimal
+function SendIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    >
+      <path d="M12 19V5" />
+      <path d="m5 12 7-7 7 7" />
+    </svg>
+  );
+}
+
+// Small × — discard, minimal and unobtrusive
+function DiscardIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+    >
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
+}
+
 // ── Status label ──────────────────────────────────────────────────────────────
 
 const STATUS_LABEL: Record<MarimbaState, string> = {
   idle:      'tap to speak',
-  listening: 'listening… tap to stop',
+  listening: 'tap to send',
   thinking:  'thinking…',
   speaking:  'speaking',
 };
@@ -46,7 +107,7 @@ const AVATAR_ANIMATION: Record<MarimbaState, React.CSSProperties> = {
 
 const AVATAR_RING: Record<MarimbaState, string> = {
   idle:      'border-amber-500/20',
-  listening: 'border-amber-400/80',
+  listening: 'border-amber-400/60',
   thinking:  'border-amber-500/40',
   speaking:  'border-amber-400/60',
 };
@@ -58,6 +119,15 @@ interface AvatarProps {
 }
 
 function Avatar({ state, onClick, canClick }: AvatarProps) {
+  function handleClick() {
+    if (state === 'idle') {
+      playStartTone();
+    } else if (state === 'listening') {
+      playSendTone();
+    }
+    onClick();
+  }
+
   return (
     <div className="relative flex items-center justify-center">
       {/* Pulsing ring while listening */}
@@ -69,28 +139,38 @@ function Avatar({ state, onClick, canClick }: AvatarProps) {
       )}
 
       <button
-        onClick={onClick}
+        onClick={handleClick}
         disabled={!canClick}
         style={AVATAR_ANIMATION[state]}
         className={`
           relative w-14 h-14 rounded-full
           bg-amber-500/10 border-2 ${AVATAR_RING[state]}
-          flex items-center justify-center text-2xl
-          select-none transition-colors duration-300
+          flex items-center justify-center
+          select-none transition-all duration-300
           ${canClick
             ? 'cursor-pointer hover:bg-amber-500/15 active:scale-95'
             : 'cursor-default'
           }
         `}
-        aria-label={canClick ? 'Tap to speak to Marimba' : 'Marimba is busy'}
+        aria-label={
+          state === 'listening'
+            ? 'Tap to send your message'
+            : canClick
+              ? 'Tap to speak to Marimba'
+              : 'Marimba is busy'
+        }
       >
-        🦊
+        {state === 'listening' ? (
+          <span className="text-amber-400">
+            <SendIcon />
+          </span>
+        ) : (
+          <span className="text-2xl">🦊</span>
+        )}
       </button>
     </div>
   );
 }
-
-// ── Mic button removed (handled entirely by Avatar) ──
 
 // ── Widget ────────────────────────────────────────────────────────────────────
 
@@ -98,16 +178,22 @@ interface MarimbaWidgetProps {
   state: MarimbaState;
   isSupported: boolean;
   onMicClick: () => void;
+  onDiscard?: () => void;
   lastResponse: string | null;
 }
 
-export function MarimbaWidget({ state, isSupported, onMicClick, lastResponse }: MarimbaWidgetProps) {
+export function MarimbaWidget({ state, isSupported, onMicClick, onDiscard, lastResponse }: MarimbaWidgetProps) {
   const canTap = isSupported && (state === 'idle' || state === 'listening');
+
+  function handleDiscard() {
+    playDiscardTone();
+    onDiscard?.();
+  }
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
 
-      {/* Speech bubble — always shown when there's a response, audio or not */}
+      {/* Speech bubble — always shown when there's a response */}
       {lastResponse && (
         <div className="relative max-w-[220px] mb-1">
           <div className="bg-stone-800 border border-stone-700 rounded-2xl rounded-br-sm px-3.5 py-2.5 shadow-lg">
@@ -119,7 +205,30 @@ export function MarimbaWidget({ state, isSupported, onMicClick, lastResponse }: 
       <div className="flex flex-col items-center gap-2">
         {state === 'thinking' && <ThinkingDots />}
 
-        <Avatar state={state} onClick={onMicClick} canClick={canTap} />
+        {/* Avatar + discard grouped tightly together */}
+        <div className="relative">
+          <Avatar state={state} onClick={onMicClick} canClick={canTap} />
+
+          {/* Discard button — small × tucked into the top-left of the avatar */}
+          {state === 'listening' && onDiscard && (
+            <button
+              onClick={handleDiscard}
+              className="
+                absolute -top-1 -left-1
+                w-6 h-6 rounded-full
+                bg-stone-800/90 border border-stone-600/50
+                flex items-center justify-center
+                text-stone-500 hover:text-stone-300 hover:border-stone-500
+                transition-all duration-200 active:scale-90
+                cursor-pointer backdrop-blur-sm
+              "
+              aria-label="Discard recording"
+              title="Discard"
+            >
+              <DiscardIcon />
+            </button>
+          )}
+        </div>
 
         {/* Status label */}
         <p className={`
