@@ -10,3 +10,5 @@ tests/
 *.sqlite
 .env
 .env.*
+token.json
+*credentials*.json

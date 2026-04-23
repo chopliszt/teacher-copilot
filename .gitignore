@@ -221,10 +221,9 @@ settings_local.py
 
 # Credential files
 .htpasswd
-
-# SSH keys
-id_rsa
-id_dsa
+credentials.json
+token.json
+*credentials*.json
 
 # AWS credentials
 .aws/

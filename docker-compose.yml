@@ -15,7 +15,9 @@ services:
       - backend
     ports:
       - "127.0.0.1:8080:80"                # local access: http://localhost:8080
-    # nginx proxies /api/* → backend:8000 internally
+    environment:
+      - PORT=80
+      - BACKEND_URL=http://backend:8000     # nginx proxies /api/* → backend:8000 internally
 
   cloudflared:
     image: cloudflare/cloudflared:latest

@@ -7,7 +7,7 @@ the other JSON data files. Swap DATABASE_URL for Postgres when ready.
 
 from pathlib import Path
 
-from sqlalchemy import Column, Integer, String, Text, create_engine
+from sqlalchemy import Boolean, Column, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 DB_PATH = Path(__file__).parent / "data" / "teacher_pilot.db"
@@ -118,6 +118,25 @@ class VoiceLogRecord(Base):
         Text, nullable=True
     )  # the extracted action type (e.g., "open_class"), or null
     created_at = Column(String, nullable=False)  # ISO UTC timestamp
+
+
+class MeetingRecord(Base):
+    """
+    A recorded school meeting: stores the transcription, AI-generated summary,
+    action items, and optional email send status.
+    """
+
+    __tablename__ = "meetings"
+
+    id = Column(String, primary_key=True)  # UUID
+    created_at = Column(String, nullable=False)  # ISO-8601 UTC
+    transcription = Column(Text, nullable=False)
+    summary = Column(Text, nullable=False)
+    action_items = Column(Text, nullable=False)  # JSON-encoded list[str]
+    suggested_subject = Column(String, nullable=True)
+    email_body = Column(Text, nullable=True)
+    email_sent = Column(Boolean, default=False, nullable=False)
+    recipient = Column(String, nullable=True)
 
 
 def init_db() -> None:

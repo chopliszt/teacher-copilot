@@ -6,8 +6,14 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 # Scopes definen qué permisos le pedimos a Google.
-# gmail.modify nos permite leer, y también marcar como leído o mover a carpetas si lo necesitamos luego.
-SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+# gmail.modify: leer, marcar como leído, mover a carpetas.
+# gmail.send: enviar correos nuevos (resúmenes de reunión).
+# calendar.events: crear y leer eventos (agendar reuniones de seguimiento).
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/calendar.events",
+]
 
 CREDENTIALS_FILE = "credentials-google-connection.json"
 TOKEN_FILE = "token.json"

@@ -8,7 +8,13 @@ export default defineConfig({
   server: {
     proxy: {
       // In dev, forward /api/* to the local FastAPI server
-      '/api': 'http://localhost:8000',
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        // 5-minute timeout — meeting transcription + summarization can take 2-3 min
+        proxyTimeout: 300_000,
+        timeout: 300_000,
+      },
     },
   },
 })

@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePriorities } from './lib/hooks/usePriorities';
 import { useWeeklySchedule } from './lib/hooks/useWeeklySchedule';
 import { useVoice } from './lib/hooks/useVoice';
 import { MarimbaGreeting } from './components/MarimbaGreeting';
 import { MarimbaWidget } from './components/MarimbaWidget';
+import { MeetingRecorder } from './components/MeetingRecorder';
 import { PriorityList } from './components/PriorityList';
 import { TodaySchedule } from './components/TodaySchedule';
 import { InboxTray } from './components/InboxTray';
@@ -53,6 +54,8 @@ export default function App() {
   const [voiceOpenPriority, setVoiceOpenPriority] = useState<string | null>(null);
   // Counter that increments each time "close_all" is received — children watch this
   const [closeAllCounter, setCloseAllCounter] = useState(0);
+  // Voice trigger for meeting recording — flips to true, MeetingRecorder resets it
+  const [voiceStartMeeting, setVoiceStartMeeting] = useState(false);
 
   const handleVoiceAction = useCallback((action: VoiceAction) => {
     if (action.type === 'open_class' && action.group) {
@@ -70,8 +73,26 @@ export default function App() {
       setVoiceOpenGroup(null);
       setVoiceOpenPriority(null);
       setCloseAllCounter((prev) => prev + 1);
+    } else if (action.type === 'start_meeting_recording') {
+      setVoiceStartMeeting(true);
+      setTimeout(() => {
+        document.getElementById('meeting-notes')?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     }
     // add_task: backend already saved it; useVoice invalidates queries automatically
+  }, []);
+
+  const [meetingResponse, setMeetingResponse] = useState<string | null>(null);
+  const meetingDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMeetingProcessingDone = useCallback((msg: string) => {
+    setMeetingResponse(msg);
+    if (meetingDismissRef.current) clearTimeout(meetingDismissRef.current);
+    meetingDismissRef.current = setTimeout(() => setMeetingResponse(null), 7000);
+  }, []);
+
+  useEffect(() => () => {
+    if (meetingDismissRef.current) clearTimeout(meetingDismissRef.current);
   }, []);
 
   const { marimbaState, toggleListening, discardRecording, isSupported, lastResponse } = useVoice({
@@ -96,6 +117,13 @@ export default function App() {
           <PriorityList priorities={priorities} openPriorityId={voiceOpenPriority} closeAllCounter={closeAllCounter} />
         </div>
         <UserTaskSection />
+        <div id="meeting-notes">
+          <MeetingRecorder
+            triggerRecord={voiceStartMeeting}
+            onTriggerConsumed={() => setVoiceStartMeeting(false)}
+            onProcessingDone={handleMeetingProcessingDone}
+          />
+        </div>
         <InboxTray />
       </main>
       <MarimbaWidget
@@ -103,7 +131,7 @@ export default function App() {
         isSupported={isSupported}
         onMicClick={toggleListening}
         onDiscard={discardRecording}
-        lastResponse={lastResponse}
+        lastResponse={meetingResponse ?? lastResponse}
       />
     </div>
   );

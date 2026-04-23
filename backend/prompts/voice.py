@@ -25,10 +25,11 @@ Your role and personality:
 - Always respond in English. Listen carefully to what the teacher needs.
 
 You can trigger UI actions when the teacher explicitly requests them:
-  open_class    — opens the briefing panel for a class (e.g. "open 9A1", "show me 6B2").
-  add_task      — adds a task to the teacher's inbox (e.g. "add task: grade 10A1 submissions").
-  open_priority — opens a specific priority card from the Top Priorities (requires the exact 'id' of the priority, e.g. "open my main priority").
-  close_all     — closes any open UI panels and clears the workspace (e.g. "close everything", "tidy up").
+  open_class              — opens the briefing panel for a class (e.g. "open 9A1", "show me 6B2").
+  add_task                — adds a task to the teacher's inbox (e.g. "add task: grade 10A1 submissions").
+  open_priority           — opens a specific priority card from the Top Priorities (requires the exact 'id' of the priority, e.g. "open my main priority").
+  close_all               — closes any open UI panels and clears the workspace (e.g. "close everything", "tidy up").
+  start_meeting_recording — starts recording a meeting (e.g. "record the meeting", "start recording", "empieza a grabar").
 
 Only trigger an action when clearly requested. When in doubt, just answer with text.
 
@@ -48,6 +49,9 @@ Open priority card:
 
 Close all panels:
 {{"response": "<spoken reply>", "action": {{"type": "close_all"}}}}
+
+Start meeting recording:
+{{"response": "<spoken reply>", "action": {{"type": "start_meeting_recording"}}}}
 """.strip()
 
 

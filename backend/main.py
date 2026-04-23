@@ -18,6 +18,7 @@ from database import (
     AbsenceRecord,
     ClassSessionRecord,
     ImportantEmailRecord,
+    MeetingRecord,
     UserTaskRecord,
     WeeklyScheduleRecord,
     get_db,
@@ -25,9 +26,10 @@ from database import (
 )
 from dotenv import load_dotenv
 from email_processor import EmailBatch, process_batch
-from fastapi import Depends, FastAPI, File, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from mistral_client import call_mistral
+from prompts.meeting_summary import summarize_meeting
 from prompts.voice import call_voice_mistral
 from prompts.weekly_schedule import extract_weekly_schedule
 from pydantic import BaseModel
@@ -509,23 +511,34 @@ async def post_schedule_day(body: Dict[str, Any]) -> Dict[str, Any]:
     return {"date": date_str, "day": int(day), "updated": True}
 
 
-@app.post("/api/emails")
-async def receive_emails(
-    batch: EmailBatch,
-    db: Session = Depends(get_db),
-) -> Dict[str, Any]:
+@app.post("/api/emails/sync")
+async def sync_emails(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
-    Webhook receiver for n8n Gmail batches.
-
-    n8n POSTs a JSON array of unread messages every 15 minutes.
-    One Mistral call classifies the entire batch into:
-      - action_required  → saved to important_emails
-      - absence          → saved to absences (student + group extracted)
-      - weekly_schedule  → saved to important_emails for separate processing
-      - ignore           → discarded
-
-    Idempotent — already-stored email IDs are silently skipped.
+    Trigger native Gmail connector to fetch unread emails and process them.
+    Replaces the old n8n webhook /api/emails.
     """
+    from connectors.gmail import fetch_unread_emails, is_configured
+
+    if not is_configured():
+        return {
+            "status": "error",
+            "message": "Gmail is not configured. Run auth_gmail.py first.",
+            "emails_processed": 0,
+        }
+
+    # Fetch fresh unread emails via Gmail API directly
+    fetched_emails = fetch_unread_emails()
+    if not fetched_emails:
+        return {
+            "status": "success",
+            "message": "No unread emails",
+            "emails_processed": 0,
+        }
+
+    # Pack into the expected EmailBatch model for the existing triaging system
+    batch = EmailBatch(emails=fetched_emails)
+
+    # Process through Mistral and Database
     return await process_batch(batch, db)
 
 
@@ -950,6 +963,121 @@ async def handle_voice(
             "audio": None,
             "action": None,
         }
+
+
+class MeetingEmailSendRequest(BaseModel):
+    to: str
+    subject: str
+    body: str
+
+
+@app.post("/api/meetings/process")
+async def process_meeting_audio(
+    audio: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Transcribe a meeting recording and generate a Spanish email summary.
+
+    Pipeline:
+      1. Receive audio file (WebM/Opus or MP4/AAC, up to ~45 min)
+      2. Voxtral Mini transcribes it in Spanish
+      3. Mistral Large generates summary, action items, and email draft
+      4. Persists a MeetingRecord to the database
+      5. Returns meeting_id + full draft for the frontend review step
+
+    The caller should use a long HTTP timeout (≥180 s) for large files.
+    """
+    import uuid
+
+    try:
+        audio_bytes = await audio.read()
+
+        if not audio_bytes:
+            raise HTTPException(status_code=422, detail="El archivo de audio estaba vacío.")
+
+        print(f"[Meetings] Received audio: {len(audio_bytes)} bytes, filename={audio.filename}")
+
+        # No language hint — Voxtral auto-detects; forcing a hint can hurt accuracy
+        transcript = await transcribe_audio(audio_bytes, audio.filename or "meeting.webm")
+
+        if not transcript:
+            raise HTTPException(
+                status_code=422,
+                detail="No se pudo transcribir el audio. Verifica que el archivo tenga voz grabada y que MISTRAL_API_KEY esté configurado.",
+            )
+
+        print(f"[Meetings] Transcript ({len(transcript)} chars): {transcript[:120]}…")
+
+        summary_result = await summarize_meeting(transcript)
+
+        if not summary_result:
+            raise HTTPException(
+                status_code=422,
+                detail="No se pudo generar el resumen. Verifica que MISTRAL_API_KEY esté configurado.",
+            )
+
+        meeting_id = str(uuid.uuid4())
+        record = MeetingRecord(
+            id=meeting_id,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            transcription=transcript,
+            summary=summary_result["summary"],
+            action_items=json.dumps(summary_result["action_items"], ensure_ascii=False),
+            suggested_subject=summary_result["suggested_subject"],
+            email_body=summary_result["email_body"],
+            email_sent=False,
+            recipient=None,
+        )
+        db.add(record)
+        db.commit()
+
+        return {
+            "meeting_id": meeting_id,
+            "transcription": transcript,
+            "summary": summary_result["summary"],
+            "action_items": summary_result["action_items"],
+            "suggested_subject": summary_result["suggested_subject"],
+            "email_body": summary_result["email_body"],
+        }
+
+    except HTTPException:
+        raise  # let our own clean errors pass through unchanged
+    except Exception as e:
+        print(f"[Meetings] Unhandled error: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error inesperado: {type(e).__name__}. Revisa la consola del servidor para más detalles.",
+        )
+
+
+@app.post("/api/meetings/{meeting_id}/send-email")
+async def send_meeting_email(
+    meeting_id: str,
+    request: MeetingEmailSendRequest,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Send the meeting summary email via Gmail and mark the record as sent.
+    Requires the Gmail connector to be configured with the gmail.send scope.
+    """
+    from connectors.gmail import is_configured, send_email
+
+    record = db.get(MeetingRecord, meeting_id)
+    if not record:
+        return {"sent": False, "error": "Reunión no encontrada."}
+
+    if not is_configured():
+        return {"sent": False, "error": "Gmail no está configurado. Ejecuta auth_gmail.py."}
+
+    sent = send_email(to=request.to, subject=request.subject, body=request.body)
+
+    if sent:
+        record.email_sent = True
+        record.recipient = request.to
+        db.commit()
+
+    return {"sent": sent}
 
 
 if __name__ == "__main__":
