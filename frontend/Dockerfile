@@ -7,7 +7,7 @@ WORKDIR /app
 ENV HUSKY=0
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY . .
 # VITE_API_URL intentionally left empty — nginx proxies /api/* to backend
