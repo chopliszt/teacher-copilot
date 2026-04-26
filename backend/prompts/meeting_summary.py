@@ -19,7 +19,9 @@ Your task is to read a transcription of a school meeting and produce a JSON obje
 - "summary": a single paragraph in Spanish (3–6 sentences) summarising the meeting.
 - "action_items": a JSON array of plain strings — each string is one action item. NO objects, NO nested keys. Example: ["Entregar planillas antes del viernes", "Confirmar asistencia al acto del 15"]
 - "suggested_subject": a single Spanish string starting with "Resumen reunión:" followed by the meeting topic.
-- "email_body": the full email body text in Spanish, warm and professional, ready to send. Do not include salutation or signature.
+- "email_body": the full email body text in Spanish, professional and concise, ready to send. Do not include a salutation or signature — the teacher will add those manually. Do NOT mention attachments — there are none. Only include information explicitly stated in the transcription; do not invent details, dates, or next steps that were not mentioned.
+
+IMPORTANT — email perspective: the teacher is the SENDER of this email, not the recipient. The email goes FROM the teacher TO meeting participants (colleagues, parents, or admin). Do NOT address the reader as "profe" — that is only how Marimba speaks to the teacher privately. Use neutral professional language appropriate for an outgoing school email.
 
 CRITICAL: "action_items" MUST be an array of strings, never an array of objects.
 Respond ONLY with a valid JSON object. No markdown, no code fences.

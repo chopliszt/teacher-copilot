@@ -49,6 +49,7 @@ interface UseMeetingRecorderReturn {
   draft: MeetingDraft | null;
   meetingId: string | null;
   errorMessage: string | null;
+  sendError: string | null;
   savedFilename: string | null;
   startRecording: () => Promise<void>;
   stopAndProcess: () => void;
@@ -86,6 +87,7 @@ export function useMeetingRecorder(): UseMeetingRecorderReturn {
   const [draft, setDraft] = useState<MeetingDraft | null>(null);
   const [meetingId, setMeetingId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [savedFilename, setSavedFilename] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -240,6 +242,7 @@ export function useMeetingRecorder(): UseMeetingRecorderReturn {
     async (to: string, subject: string, body: string) => {
       if (!meetingId) return;
 
+      setSendError(null);
       setState('sending');
 
       try {
@@ -247,12 +250,14 @@ export function useMeetingRecorder(): UseMeetingRecorderReturn {
         if (result.sent) {
           setState('done');
         } else {
-          setState('error');
-          setErrorMessage(result.error ?? 'No se pudo enviar el correo.');
+          // Stay in composing so the draft is not lost
+          setState('composing');
+          setSendError(result.error ?? 'No se pudo enviar el correo.');
         }
       } catch (err) {
-        setState('error');
-        setErrorMessage(extractErrorMessage(err, 'Error al enviar el correo. Intenta de nuevo.'));
+        // Stay in composing so the draft is not lost
+        setState('composing');
+        setSendError(extractErrorMessage(err, 'Error al enviar el correo. Intenta de nuevo.'));
       }
     },
     [meetingId],
@@ -263,6 +268,7 @@ export function useMeetingRecorder(): UseMeetingRecorderReturn {
     setDraft(null);
     setMeetingId(null);
     setErrorMessage(null);
+    setSendError(null);
     setSavedFilename(null);
     savedBlobRef.current = null;
     setState('idle');
@@ -284,6 +290,7 @@ export function useMeetingRecorder(): UseMeetingRecorderReturn {
     draft,
     meetingId,
     errorMessage,
+    sendError,
     savedFilename,
     startRecording,
     stopAndProcess,

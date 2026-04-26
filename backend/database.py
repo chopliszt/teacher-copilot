@@ -139,6 +139,20 @@ class MeetingRecord(Base):
     recipient = Column(String, nullable=True)
 
 
+class EmailRecipientRecord(Base):
+    """
+    Tracks email addresses used in meeting email sends.
+    Ordered by use_count desc to power autocomplete in the compose form.
+    """
+
+    __tablename__ = "email_recipients"
+
+    email = Column(String, primary_key=True)
+    label = Column(String, nullable=True)   # optional friendly name (e.g. "Sec. Dept.")
+    use_count = Column(Integer, nullable=False, default=1)
+    last_used_at = Column(String, nullable=False)  # ISO-8601 UTC
+
+
 def init_db() -> None:
     """Create all tables. Safe to call on every startup (no-op if they exist)."""
     Base.metadata.create_all(bind=engine)

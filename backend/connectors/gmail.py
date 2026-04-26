@@ -32,12 +32,20 @@ def is_configured() -> bool:
 
 
 def _get_gmail_service():
-    """Builds and returns the Gmail API service object."""
+    """Builds and returns the Gmail API service object, refreshing the token if needed."""
     if not is_configured():
         return None
 
     try:
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+
+        if creds.expired and creds.refresh_token:
+            from google.auth.transport.requests import Request
+            creds.refresh(Request())
+            # Persist the refreshed token so the next call doesn't need to refresh again
+            with open(TOKEN_FILE, "w") as f:
+                f.write(creds.to_json())
+
         service = build("gmail", "v1", credentials=creds)
         return service
     except Exception as e:
@@ -187,7 +195,7 @@ def send_email(to: str, subject: str, body: str) -> bool:
         ).execute()
         return True
 
-    except HttpError as error:
+    except Exception as error:
         print(f"[Gmail Connector] Error sending email: {error}")
         return False
 

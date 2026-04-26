@@ -17,6 +17,7 @@ from context_builder import build_context  # noqa: F401 (re-exported for tests)
 from database import (
     AbsenceRecord,
     ClassSessionRecord,
+    EmailRecipientRecord,
     ImportantEmailRecord,
     MeetingRecord,
     UserTaskRecord,
@@ -1051,6 +1052,20 @@ async def process_meeting_audio(
         )
 
 
+@app.get("/api/email-recipients")
+async def get_email_recipients(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    """Return stored email recipients ordered by most-used, for autocomplete."""
+    rows = (
+        db.query(EmailRecipientRecord)
+        .order_by(EmailRecipientRecord.use_count.desc())
+        .all()
+    )
+    return [
+        {"email": r.email, "label": r.label, "use_count": r.use_count}
+        for r in rows
+    ]
+
+
 @app.post("/api/meetings/{meeting_id}/send-email")
 async def send_meeting_email(
     meeting_id: str,
@@ -1070,12 +1085,28 @@ async def send_meeting_email(
     if not is_configured():
         return {"sent": False, "error": "Gmail no está configurado. Ejecuta auth_gmail.py."}
 
-    sent = send_email(to=request.to, subject=request.subject, body=request.body)
+    try:
+        sent = send_email(to=request.to, subject=request.subject, body=request.body)
+    except Exception as e:
+        print(f"[send_meeting_email] unexpected error: {e}")
+        return {"sent": False, "error": "Error inesperado al enviar. Revisa los logs del servidor."}
 
     if sent:
         record.email_sent = True
         record.recipient = request.to
         db.commit()
+
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            existing = db.get(EmailRecipientRecord, request.to)
+            if existing:
+                existing.use_count += 1
+                existing.last_used_at = now
+            else:
+                db.add(EmailRecipientRecord(email=request.to, use_count=1, last_used_at=now))
+            db.commit()
+        except Exception as e:
+            print(f"[send_meeting_email] recipient tracking failed (non-fatal): {e}")
 
     return {"sent": sent}
 

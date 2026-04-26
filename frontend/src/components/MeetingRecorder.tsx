@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { fetchEmailRecipients, type EmailRecipient } from '../lib/api/client';
 import { useMeetingRecorder } from '../lib/hooks/useMeetingRecorder';
 
 interface MeetingRecorderProps {
@@ -78,6 +79,7 @@ export function MeetingRecorder({
     recordingSeconds,
     draft,
     errorMessage,
+    sendError,
     savedFilename,
     startRecording,
     stopAndProcess,
@@ -95,6 +97,11 @@ export function MeetingRecorder({
   const [emailTo, setEmailTo] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
+  const [recipients, setRecipients] = useState<EmailRecipient[]>([]);
+
+  useEffect(() => {
+    fetchEmailRecipients().then(setRecipients).catch(() => {});
+  }, []);
 
   // Populate email fields when the draft arrives
   useEffect(() => {
@@ -293,11 +300,17 @@ export function MeetingRecorder({
             <input
               autoFocus
               type="email"
+              list="email-recipients-list"
               value={emailTo}
               onChange={(e) => setEmailTo(e.target.value)}
               placeholder="recipient@school.edu"
               className="w-full bg-stone-950 border border-stone-800 rounded-lg px-3 py-2 text-stone-200 text-sm placeholder-stone-700 focus:outline-none focus:border-stone-600 transition-colors"
             />
+            <datalist id="email-recipients-list">
+              {recipients.map((r) => (
+                <option key={r.email} value={r.email} label={r.label ?? undefined} />
+              ))}
+            </datalist>
           </div>
 
           {/* Subject */}
@@ -321,6 +334,16 @@ export function MeetingRecorder({
               className="w-full bg-stone-950 border border-stone-800 rounded-lg px-3 py-2 text-stone-300 text-sm placeholder-stone-700 focus:outline-none focus:border-stone-600 transition-colors resize-y"
             />
           </div>
+
+          {/* Send error — stays visible so the draft is never lost */}
+          {sendError && (
+            <div className="bg-red-500/5 border border-red-500/20 rounded-xl px-3 py-2.5">
+              <p className="text-red-400 text-xs leading-relaxed">{sendError}</p>
+              <p className="text-stone-600 text-xs mt-1">
+                Puedes copiar el cuerpo del correo arriba y enviarlo desde Gmail manualmente.
+              </p>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-2 pt-1 border-t border-stone-800">

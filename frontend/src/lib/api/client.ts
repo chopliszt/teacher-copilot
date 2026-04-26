@@ -262,6 +262,19 @@ export async function uploadMeetingFile(file: File): Promise<MeetingDraft> {
   return MeetingDraftSchema.parse(response.data);
 }
 
+export const EmailRecipientSchema = z.object({
+  email: z.string(),
+  label: z.string().nullable(),
+  use_count: z.number(),
+});
+
+export type EmailRecipient = z.infer<typeof EmailRecipientSchema>;
+
+export async function fetchEmailRecipients(): Promise<EmailRecipient[]> {
+  const response = await httpClient.get('/api/email-recipients');
+  return z.array(EmailRecipientSchema).parse(response.data);
+}
+
 export async function sendMeetingEmail(
   meetingId: string,
   payload: { to: string; subject: string; body: string },
