@@ -18,6 +18,8 @@ services:
     environment:
       - PORT=80
       - BACKEND_URL=http://backend:8000     # nginx proxies /api/* → backend:8000 internally
+      - AUTH_USER=admin
+      - AUTH_PASS=changeme
 
   cloudflared:
     image: cloudflare/cloudflared:latest
