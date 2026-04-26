@@ -17,6 +17,8 @@ RUN npm run build
 # ── Stage 2: serve ────────────────────────────────────────────────────────────
 FROM nginx:alpine
 
+RUN apk add --no-cache apache2-utils
+
 ENV PORT=80
 ENV BACKEND_URL=http://backend:8000
 

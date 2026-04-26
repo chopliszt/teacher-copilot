@@ -6,7 +6,7 @@ set -e
 : "${AUTH_USER:=admin}"
 : "${AUTH_PASS:=changeme}"
 
-printf '%s:%s\n' "${AUTH_USER}" "$(openssl passwd -apr1 "${AUTH_PASS}")" > /etc/nginx/.htpasswd
+htpasswd -bc /etc/nginx/.htpasswd "${AUTH_USER}" "${AUTH_PASS}"
 
 envsubst '${BACKEND_URL} ${PORT}' \
   < /etc/nginx/nginx.conf.template \
