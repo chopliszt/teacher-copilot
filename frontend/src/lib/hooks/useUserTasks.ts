@@ -4,11 +4,8 @@ import { addUserTask, deleteUserTask, type UserTask } from '../api/client';
 export function useUserTasks() {
   return useQuery<UserTask[], Error>({
     queryKey: ['user-tasks'],
-    queryFn: async () => [
-      { id: 't1', title: 'Review IB ATLs for ethics in AI', priority: 'high', due_date: null, created_at: new Date().toISOString() },
-      { id: 't2', title: 'Hackathon / Contest Prep', priority: 'medium', due_date: null, created_at: new Date().toISOString() }
-    ],
-    staleTime: Infinity,
+    queryFn: fetchUserTasks,
+    staleTime: 0,
   });
 }
 
