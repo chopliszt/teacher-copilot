@@ -571,6 +571,30 @@ async def get_absences(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     ]
 
 
+@app.delete("/api/important-emails/{email_id}")
+async def dismiss_email(email_id: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Dismiss a single action-required email."""
+    record = db.get(ImportantEmailRecord, email_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Email not found")
+    db.delete(record)
+    db.commit()
+    return {"deleted": True}
+
+
+@app.delete("/api/important-emails")
+async def dismiss_all_emails(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Dismiss all action-required emails (clean slate)."""
+    from sqlalchemy import delete as sql_delete
+    db.execute(
+        sql_delete(ImportantEmailRecord).where(
+            ImportantEmailRecord.category == "action_required"
+        )
+    )
+    db.commit()
+    return {"deleted": True}
+
+
 @app.get("/api/important-emails")
 async def get_important_emails(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """Action-required emails (excludes weekly_schedule — those are processed separately)."""

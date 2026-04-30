@@ -116,6 +116,14 @@ export async function fetchImportantEmails(): Promise<ImportantEmail[]> {
   return z.array(ImportantEmailSchema).parse(response.data);
 }
 
+export async function dismissEmail(id: string): Promise<void> {
+  await httpClient.delete(`/api/important-emails/${id}`);
+}
+
+export async function dismissAllEmails(): Promise<void> {
+  await httpClient.delete('/api/important-emails');
+}
+
 export const ClassDisruptionSchema = z.object({
   description: z.string(),
   day: z.string(),
