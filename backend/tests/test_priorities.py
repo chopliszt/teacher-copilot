@@ -204,13 +204,15 @@ class TestErrorHandling:
     """Test error handling"""
 
     def test_priorities_error_handling(self, monkeypatch):
-        """Schedule data unavailable → endpoint returns an error key (not 500)."""
+        """Schedule data unavailable → endpoint returns empty priorities (not 500)."""
         monkeypatch.setattr("main._load_schedule_data", lambda: None)
 
         response = client.get("/api/priorities")
         assert response.status_code == 200  # graceful degradation, not a 500
         data = response.json()
-        assert "error" in data
+        assert data["priorities"] == []
+        assert "generated_at" in data
+        assert data["count"] == 0
 
 
 class TestMistralIntegration:

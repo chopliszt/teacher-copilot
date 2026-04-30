@@ -107,8 +107,21 @@ export function useVoice({ onAction }: UseVoiceOptions = {}): UseVoiceReturn {
           setMarimbaState('idle');
         }
       } catch (err) {
-        console.error('[Marimba] Voice pipeline error:', err);
-        showResponse('Algo salió mal, profe. Intenta de nuevo.');
+        // Log full details so devtools show exactly what failed
+        const axiosErr = err as { response?: { status: number; data: unknown }; message?: string };
+        if (axiosErr?.response) {
+          console.error('[Marimba] Voice HTTP error', axiosErr.response.status, axiosErr.response.data);
+        } else {
+          console.error('[Marimba] Voice pipeline error:', err);
+        }
+        // Show backend's own message when it's a string, otherwise generic fallback
+        const backendMsg =
+          typeof axiosErr?.response?.data === 'object' &&
+          axiosErr?.response?.data !== null &&
+          'text' in (axiosErr.response.data as object)
+            ? (axiosErr.response.data as { text: string }).text
+            : null;
+        showResponse(backendMsg ?? 'Algo salió mal, profe. Intenta de nuevo.');
         setMarimbaState('idle');
       }
     },

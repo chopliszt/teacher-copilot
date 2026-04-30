@@ -378,6 +378,22 @@ Without `MISTRAL_API_KEY` the app still works - priorities fall back to the loca
 
 ## Common Issues
 
+**Schedule day counter is wrong after a holiday or Easter break?**
+
+The app tracks which day in the 6-day rotation it is using a rolling calculator. Long breaks (Easter, holidays, cancelled days) can cause it to drift. Fix it with one command — just tell the API what today's real day number is:
+
+```bash
+curl -X POST http://localhost:8000/api/schedule-day \
+  -H "Content-Type: application/json" \
+  -d '{"date": "2026-04-30", "day": 6}'
+```
+
+Replace `2026-04-30` with today's date and `6` with the correct day number (1–6). The rolling calculator picks up from there correctly.
+
+If using Docker, the backend is accessible at `http://localhost:8000` from the server itself, or from `http://localhost:8080/api/schedule-day` through the nginx proxy.
+
+---
+
 **Port 8000 already in use?**
 ```bash
 lsof -i :8000

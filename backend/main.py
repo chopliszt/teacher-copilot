@@ -370,7 +370,12 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
         schedule_data = _load_schedule_data()
 
         if not schedule_data:
-            return {"error": "Schedule data not available"}
+            print("[Priorities] schedule data missing — check teacher_schedule.json")
+            return {
+                "priorities": [],
+                "generated_at": datetime.now().isoformat(),
+                "count": 0,
+            }
 
         from sqlalchemy import select
 
@@ -439,7 +444,11 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
             filtered_tasks = _filter_tasks_by_schedule(all_tasks, schedule_data)
 
             if not filtered_tasks:
-                return {"priorities": [], "message": "No relevant tasks found"}
+                return {
+                    "priorities": [],
+                    "generated_at": datetime.now().isoformat(),
+                    "count": 0,
+                }
 
             scored_tasks = [
                 {"task": task, "score": _calculate_priority_score(task, current_time)}
@@ -473,9 +482,11 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
 
         return response
 
-    except Exception:
-        # Generic error to prevent information leakage
-        return {"error": "Failed to generate priorities"}
+    except Exception as e:
+        import traceback
+        print(f"[Priorities] Unhandled error: {type(e).__name__}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
 
 
 @app.get("/api/schedule-day")
@@ -873,7 +884,14 @@ async def handle_voice(
     transcript = await transcribe_audio(audio_bytes, audio.filename or "recording.webm")
 
     if not transcript:
-        return {"error": "Empty transcript"}
+        no_key = not os.getenv("MISTRAL_API_KEY")
+        print(f"[Voice] Empty transcript — MISTRAL_API_KEY {'not set' if no_key else 'set, audio may be silent or corrupted'}")
+        msg = (
+            "MISTRAL_API_KEY no está configurado, profe. Sin esa clave no puedo escucharte."
+            if no_key
+            else "No pude escuchar nada en el audio. ¿Lo intentamos de nuevo?"
+        )
+        return {"text": msg, "audio": None, "action": None}
 
     try:
         schedule_data = _load_schedule_data() or {}

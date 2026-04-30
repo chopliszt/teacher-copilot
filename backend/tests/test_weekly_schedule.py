@@ -105,7 +105,7 @@ class TestExtractWeeklySchedule:
 
     def test_returns_empty_dict_without_api_key(self, monkeypatch):
         monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_weekly_schedule(SAMPLE_DOC)
         )
         assert result == {}
@@ -116,7 +116,7 @@ class TestExtractWeeklySchedule:
             "prompts.weekly_schedule.Mistral",
             _mock_mistral_class(json.dumps(MOCK_EXTRACTION)),
         )
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_weekly_schedule(SAMPLE_DOC)
         )
         assert result["week_label"] == "Semana #6 - Del 2 al 6 de marzo"
@@ -127,7 +127,7 @@ class TestExtractWeeklySchedule:
             "prompts.weekly_schedule.Mistral",
             _mock_mistral_class(json.dumps(MOCK_EXTRACTION)),
         )
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_weekly_schedule(SAMPLE_DOC)
         )
         assert len(result["meetings"]) == 2
@@ -141,7 +141,7 @@ class TestExtractWeeklySchedule:
             "prompts.weekly_schedule.Mistral",
             _mock_mistral_class(json.dumps(MOCK_EXTRACTION)),
         )
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_weekly_schedule(SAMPLE_DOC)
         )
         assert len(result["class_disruptions"]) >= 2
@@ -156,7 +156,7 @@ class TestExtractWeeklySchedule:
             "prompts.weekly_schedule.Mistral",
             _mock_mistral_class(json.dumps(MOCK_EXTRACTION)),
         )
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_weekly_schedule(SAMPLE_DOC)
         )
         dates = [d["date"] for d in result["upcoming_dates"]]
@@ -174,7 +174,7 @@ class TestExtractWeeklySchedule:
                 raise RuntimeError("Mistral exploded")
 
         monkeypatch.setattr("prompts.weekly_schedule.Mistral", BrokenMistral)
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_weekly_schedule(SAMPLE_DOC)
         )
         assert result == {}

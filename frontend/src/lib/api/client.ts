@@ -73,7 +73,14 @@ export type ScheduleResponse = z.infer<typeof ScheduleResponseSchema>;
 
 export async function fetchPriorities(): Promise<PrioritiesResponse> {
   const response = await httpClient.get('/api/priorities');
-  return PrioritiesResponseSchema.parse(response.data);
+  try {
+    return PrioritiesResponseSchema.parse(response.data);
+  } catch (zodErr) {
+    console.error('[Priorities] Unexpected response shape from /api/priorities:', response.data, zodErr);
+    throw new Error(
+      `Backend returned unexpected data — check that the server is up to date.\n\nRaw: ${JSON.stringify(response.data, null, 2)}`,
+    );
+  }
 }
 
 export async function fetchSchedule(): Promise<ScheduleResponse> {

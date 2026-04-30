@@ -6,7 +6,7 @@
     "time": "7:30 - 7:50am",
     "room": "C203",
     "group": "9A2",
-    "days": [1, 2, 3, 4, 5, 6]
+    "days": [4, 5, 6]
   },
   "classes": [
     {
@@ -20,7 +20,6 @@
       "day": 2,
       "periods": [
         { "time": "7:50am - 9:10am",   "subject": "Digital Design", "room": "Codingspace", "group": "8A1" },
-        { "time": "9:10am - 10:50am",  "subject": "Digital Design", "room": "Codingspace", "group": "4B"  },
         { "time": "10:50am - 12:10pm", "subject": "Digital Design", "room": "Codingspace", "group": "5B2" },
         { "time": "1:30pm - 2:50pm",   "subject": "Digital Design", "room": "Codingspace", "group": "6B1" }
       ]
@@ -51,9 +50,7 @@
     },
     {
       "day": 6,
-      "periods": [
-        { "time": "10:50am - 12:10pm", "subject": "Digital Design", "room": "Codingspace", "group": "4A" }
-      ]
+      "periods": []
     }
   ],
   "break": "9:50 - 10:10am",

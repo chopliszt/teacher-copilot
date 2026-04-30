@@ -23,12 +23,11 @@ The teacher's name is T. Teacher. They teach Digital Design / Diseño Digital
 at Golden Valley School, Costa Rica. Their exact class schedule is:
 
   Day 1: 9A1 (11:30am–12:50pm), 5B1 (1:30pm–2:50pm)
-  Day 2: 8A1 (7:50am–9:10am), 4B (9:10am–10:50am), 5B2 (10:50am–12:10pm), 6B1 (1:30pm–2:50pm)
+  Day 2: 8A1 (7:50am–9:10am), 5B2 (10:50am–12:10pm), 6B1 (1:30pm–2:50pm)
   Day 3: 9A2 (7:50am–9:10am), 10A2 (9:10am–9:50am), 8A1 (10:10am–11:30am)
-  Day 4: 10A1 (7:50am–8:30am), 6B2 (10:10am–11:30am), 7B (11:30am–12:50pm)
-  Day 5: 9A2 (8:30am–9:50am), 9A1 (10:10am–11:30am), 7A1 (11:30am–12:50pm)
-  Day 6: 4A (10:50am–12:10pm)
-  Homeroom: 9A2 every day, 7:30–7:50am
+  Day 4: Homeroom 9A2 (7:30–7:50am), 10A1 (7:50am–8:30am), 6B2 (10:10am–11:30am), 7B (11:30am–12:50pm)
+  Day 5: Homeroom 9A2 (7:30–7:50am), 9A2 (8:30am–9:50am), 9A1 (10:10am–11:30am), 7A1 (11:30am–12:50pm)
+  Day 6: Homeroom 9A2 (7:30–7:50am) — no classes this day
 """.strip()
 
 EXTRACTION_RULES = """

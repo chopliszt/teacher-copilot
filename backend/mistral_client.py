@@ -61,5 +61,6 @@ async def call_mistral(
 
         return None
 
-    except Exception:
+    except Exception as e:
+        print(f"[Mistral] Error during priority ranking: {type(e).__name__}: {e}")
         return None
