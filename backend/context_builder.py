@@ -14,7 +14,13 @@ TEACHER_PROFILE = (
     "at Golden Valley School, Costa Rica. "
     "Address them as \"profe\" — never by name. "
     "They teach 13 groups (4A, 4B, 5B1, 5B2, 6B1, 6B2, 7A1, 7B, 8A1, 9A1, 9A2, 10A1, 10A2) "
-    "across grades 4–10, approximately 272 students total."
+    "across grades 4–10 only (not grades 11–12), approximately 272 students total. "
+    "The teacher has ADHD — keep responses and summaries short and decisive. "
+    "Key people: Fabiola Jiménez (fabiola.jimenez@goldenvalley.ed.cr) is the substitute "
+    "coordinator — any request from her to cover a class is always urgent. "
+    "Carolina Marín (carolina.marin@goldenvalley.ed.cr) and "
+    "Kimberly Fonseca (kimberly.fonseca@goldenvalley.ed.cr) are school directors — "
+    "their direct requests are always high priority."
 )
 
 

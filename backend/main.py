@@ -527,7 +527,7 @@ async def post_schedule_day(body: Dict[str, Any]) -> Dict[str, Any]:
 async def sync_emails(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     Trigger native Gmail connector to fetch unread emails and process them.
-    Replaces the old n8n webhook /api/emails.
+    Uses the native Gmail connector (replaced the old n8n webhook /api/emails).
     """
     from connectors.gmail import fetch_unread_emails, is_configured
 
@@ -693,11 +693,10 @@ async def post_weekly_schedule(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
-    Receive the Google Doc text from n8n and extract structured agenda data.
+    Receive the Google Doc text and extract structured agenda data.
 
-    n8n fetches the Google Doc linked in the "Anuncios Semanales" email and
-    POSTs the plain text here. Mistral extracts meetings, class disruptions,
-    action items, and upcoming dates.
+    Paste the plain text from the "Anuncios Semanales" Google Doc here.
+    Mistral extracts meetings, class disruptions, action items, and upcoming dates.
 
     Overwrites the previous weekly schedule (only the current week is kept).
     """

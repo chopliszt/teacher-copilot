@@ -139,7 +139,7 @@ TeacherPilot pulls from the real tools the teacher already uses. No new habits r
 
 | Source | What lives there | Connector status |
 |---|---|---|
-| **Gmail via n8n** | Parent emails, coordinator requests | ✅ Live - Mistral Small classifies batches |
+| **Gmail (native OAuth2)** | Parent emails, coordinator requests | ✅ Live - Mistral Small classifies batches |
 | **Weekly doc paste** | Meetings, disruptions, action items | ✅ Live - manual paste, Mistral Small extracts |
 | **Google Sheets** | Full student list (272 students, 13 groups) | Stub - in progress |
 | **Toddle** | Grades, assignments, and submission status | Stub - in progress |
@@ -172,7 +172,7 @@ Emails classified as `action_required` surface in the priority pool and in the I
 | AI (voice input) | Voxtral Realtime |
 | AI (voice output) | ElevenLabs |
 | Deployment | Docker Compose, Cloudflare Tunnel |
-| Automation | n8n.cloud (Gmail polling, Google Docs webhooks) |
+| Email | Native Gmail OAuth2 connector (`connectors/gmail.py`) |
 
 ---
 
@@ -280,7 +280,7 @@ No extra config needed - Vite automatically proxies `/api/*` requests to `localh
 | `GET /api/schedule` | Teacher's class schedule + current day number |
 | `GET /api/schedule-day` | Current schedule day (1-6) |
 | `POST /api/schedule-day` | Manual override - body: `{"date": "YYYY-MM-DD", "day": N}` |
-| `POST /api/emails` | n8n webhook - receives Gmail batch for Mistral Small triage |
+| `POST /api/fetch-emails` | Trigger native Gmail connector to fetch and triage unread emails |
 | `GET /api/absences` | All recorded student absences |
 | `GET /api/important-emails` | Action-required emails |
 | `POST /api/weekly-schedule` | Paste weekly announcement text - Mistral Small extracts it |

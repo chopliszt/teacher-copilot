@@ -2,7 +2,7 @@
 Weekly Schedule Prompt — extracts structured agenda items from the
 "Anuncios Semanales" Google Doc content.
 
-n8n fetches the Google Doc text and POSTs it to POST /api/weekly-schedule.
+Paste the plain text from the weekly Google Doc into POST /api/weekly-schedule.
 This module reads it with Mistral and returns structured JSON.
 
 Edit EXTRACTION_RULES freely to add or remove output fields.

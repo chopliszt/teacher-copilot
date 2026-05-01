@@ -266,13 +266,11 @@ class TestMistralIntegration:
     def test_mistral_path_returns_correct_structure(self, monkeypatch):
         """Mistral-driven path: endpoint returns correct schema when Mistral provides 3 items"""
         async def mock_mistral(tasks, schedule, current_time, weekly_data=None):
-            return [
-                {"id": "urgent_1", "reason": "Most urgent grading deadline today"},
-                {"id": "urgent_2", "reason": "Parent meeting cannot be rescheduled"},
-                {"id": "important_1", "reason": "Lesson plan due before class"},
-            ]
+            # Return the first 3 real task IDs so they match the actual pool
+            top3 = tasks[:3]
+            return [{"id": t["id"], "reason": f"Reason for {t['id']}"} for t in top3]
 
-        monkeypatch.setattr("mistral_client.call_mistral", mock_mistral)
+        monkeypatch.setattr("main.call_mistral", mock_mistral)
 
         response = client.get("/api/priorities")
         assert response.status_code == 200
@@ -298,10 +296,10 @@ class TestMistralIntegration:
 
     def test_fallback_when_mistral_returns_none(self, monkeypatch):
         """Fallback path: scoring algorithm kicks in when Mistral returns None"""
-        async def mock_mistral_none(tasks, schedule, current_time):
+        async def mock_mistral_none(tasks, schedule, current_time, weekly_data=None):
             return None
 
-        monkeypatch.setattr("mistral_client.call_mistral", mock_mistral_none)
+        monkeypatch.setattr("main.call_mistral", mock_mistral_none)
 
         response = client.get("/api/priorities")
         assert response.status_code == 200
@@ -317,7 +315,7 @@ class TestMistralIntegration:
         monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
 
         import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             _call_mistral_for_priorities(
                 self._SAMPLE_TASKS,
                 self._SAMPLE_SCHEDULE,
