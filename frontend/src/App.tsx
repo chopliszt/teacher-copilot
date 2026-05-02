@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePriorities } from './lib/hooks/usePriorities';
 import { useWeeklySchedule } from './lib/hooks/useWeeklySchedule';
+import { useSyncEmails } from './lib/hooks/useImportantEmails';
 import { useVoice } from './lib/hooks/useVoice';
 import { MarimbaGreeting } from './components/MarimbaGreeting';
 import { MarimbaWidget } from './components/MarimbaWidget';
@@ -98,6 +99,11 @@ export default function App() {
   const { marimbaState, toggleListening, discardRecording, isSupported, lastResponse } = useVoice({
     onAction: handleVoiceAction,
   });
+
+  const syncEmails = useSyncEmails();
+  // Fire-and-forget on mount — silently syncs Gmail in the background so
+  // Needs Action and Top 3 are fresh by the time you scroll down.
+  useEffect(() => { syncEmails.mutate(); }, []);
 
   if (isLoading) return <LoadingScreen />;
   if (isError) return <ErrorScreen message={error?.message ?? 'Unknown error'} />;

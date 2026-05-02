@@ -1,4 +1,4 @@
-import { useImportantEmails, useDismissEmail, useDismissAllEmails } from '../lib/hooks/useImportantEmails';
+import { useImportantEmails, useDismissEmail, useDismissAllEmails, useSyncEmails } from '../lib/hooks/useImportantEmails';
 
 function senderLabel(raw: string): string {
   const match = raw.match(/@([\w.-]+)/);
@@ -17,6 +17,7 @@ export function InboxTray() {
   const { data: emails = [], isLoading } = useImportantEmails();
   const dismiss = useDismissEmail();
   const dismissAll = useDismissAllEmails();
+  const sync = useSyncEmails();
 
   if (isLoading || emails.length === 0) return null;
 
@@ -29,13 +30,30 @@ export function InboxTray() {
             Needs action · {emails.length}
           </h2>
         </div>
-        <button
-          onClick={() => dismissAll.mutate()}
-          disabled={dismissAll.isPending}
-          className="text-stone-600 text-xs hover:text-stone-400 transition-colors duration-200 disabled:opacity-40"
-        >
-          clear all
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => sync.mutate()}
+            disabled={sync.isPending}
+            aria-label="Sync emails"
+            className="text-stone-600 hover:text-stone-400 transition-colors duration-200 disabled:opacity-40"
+          >
+            <svg
+              width="13" height="13" viewBox="0 0 13 13" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              className={sync.isPending ? 'animate-spin' : ''}
+            >
+              <path d="M11.5 2A6 6 0 1 0 12 6.5" />
+              <polyline points="11.5 2 11.5 5.5 8 5.5" />
+            </svg>
+          </button>
+          <button
+            onClick={() => dismissAll.mutate()}
+            disabled={dismissAll.isPending}
+            className="text-stone-600 text-xs hover:text-stone-400 transition-colors duration-200 disabled:opacity-40"
+          >
+            clear all
+          </button>
+        </div>
       </div>
 
       <div className="space-y-2">

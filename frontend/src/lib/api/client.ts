@@ -116,6 +116,10 @@ export async function fetchImportantEmails(): Promise<ImportantEmail[]> {
   return z.array(ImportantEmailSchema).parse(response.data);
 }
 
+export async function syncEmails(): Promise<void> {
+  await httpClient.post('/api/emails/sync', {}, { timeout: 60_000 });
+}
+
 export async function dismissEmail(id: string): Promise<void> {
   await httpClient.delete(`/api/important-emails/${id}`);
 }

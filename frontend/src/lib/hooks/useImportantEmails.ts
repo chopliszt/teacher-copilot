@@ -1,11 +1,22 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchImportantEmails, dismissEmail, dismissAllEmails, type ImportantEmail } from '../api/client';
+import { fetchImportantEmails, syncEmails, dismissEmail, dismissAllEmails, type ImportantEmail } from '../api/client';
 
 export function useImportantEmails() {
   return useQuery<ImportantEmail[], Error>({
     queryKey: ['important-emails'],
     queryFn: fetchImportantEmails,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useSyncEmails() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, void>({
+    mutationFn: syncEmails,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['important-emails'] });
+      queryClient.invalidateQueries({ queryKey: ['priorities'] });
+    },
   });
 }
 
