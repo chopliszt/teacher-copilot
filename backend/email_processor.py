@@ -105,8 +105,8 @@ async def process_batch(
             if not db.get(AbsenceRecord, email.id):
                 db.add(AbsenceRecord(
                     id=email.id,
-                    student_name=result.get("student_name", "Unknown"),
-                    group_name=result.get("group", "Unknown"),
+                    student_name=result.get("student_name") or "Unknown",
+                    group_name=result.get("group") or "Unknown",
                     date=date_str,
                     raw_snippet=email.snippet,
                 ))

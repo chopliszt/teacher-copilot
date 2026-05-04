@@ -460,8 +460,19 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
         # Format response — includes marimba_note when Mistral provided a reason
         priorities_out = []
         for task in top_3_tasks:
+            tid = task["id"]
+            if tid.startswith("user_"):
+                source = "user_task"
+            elif tid.startswith("meeting_"):
+                source = "meeting"
+            elif tid.startswith("action_"):
+                source = "action_item"
+            else:
+                source = "email"
+
             item: Dict[str, Any] = {
-                "id": task["id"],
+                "id": tid,
+                "source": source,
                 "title": task["title"],
                 "priority": task["priority"],
                 "estimated_time": task.get("estimated_time", "Unknown"),
@@ -469,7 +480,7 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
                 "class": task.get("related_class", ""),
                 "subject": task.get("related_subject", ""),
             }
-            reason = reasons.get(task["id"])
+            reason = reasons.get(tid)
             if reason:
                 item["marimba_note"] = reason
             priorities_out.append(item)
@@ -551,7 +562,13 @@ async def sync_emails(db: Session = Depends(get_db)) -> Dict[str, Any]:
     batch = EmailBatch(emails=fetched_emails)
 
     # Process through Mistral and Database
-    return await process_batch(batch, db)
+    try:
+        return await process_batch(batch, db)
+    except Exception as e:
+        import traceback
+        print(f"[Sync] Error during batch processing: {type(e).__name__}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Email processing failed: {type(e).__name__}: {e}")
 
 
 @app.get("/api/absences")
@@ -744,6 +761,16 @@ async def get_weekly_schedule(db: Session = Depends(get_db)) -> Dict[str, Any]:
             "absences": [],
         }
     return json.loads(record.data)
+
+
+@app.delete("/api/weekly-schedule")
+async def delete_weekly_schedule(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Clear the stored weekly schedule so stale data stops feeding the Top 3."""
+    record = db.get(WeeklyScheduleRecord, "current")
+    if record:
+        db.delete(record)
+        db.commit()
+    return {"deleted": True}
 
 
 class LogSessionRequest(BaseModel):
