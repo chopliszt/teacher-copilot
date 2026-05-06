@@ -164,9 +164,10 @@ interface ActiveCardProps {
   rank: number;
   onBack: () => void;
   onDone: () => void;
+  onNotRelevant: () => void;
 }
 
-export function ActiveCard({ priority, rank, onBack, onDone }: ActiveCardProps) {
+export function ActiveCard({ priority, rank, onBack, onDone, onNotRelevant }: ActiveCardProps) {
   const styles = PRIORITY_STYLES[priority.priority];
   const dueDate = formatDueDate(priority.due_date);
   const isUrgentDue = dueDate.isOverdue || dueDate.isDueToday;
@@ -248,6 +249,16 @@ export function ActiveCard({ priority, rank, onBack, onDone }: ActiveCardProps) 
             {briefing.primaryActionLabel} →
           </button>
         )}
+
+        {/* Feedback signal — only visible at the bottom of the expanded card */}
+        <div className="pt-2 flex justify-center">
+          <button
+            onClick={onNotRelevant}
+            className="text-stone-700 hover:text-stone-500 text-xs transition-colors"
+          >
+            not relevant for me
+          </button>
+        </div>
 
       </div>
     </div>

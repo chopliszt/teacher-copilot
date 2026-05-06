@@ -20,6 +20,7 @@ from database import (
     EmailRecipientRecord,
     ImportantEmailRecord,
     MeetingRecord,
+    PriorityFeedbackRecord,
     UserTaskRecord,
     WeeklyScheduleRecord,
     get_db,
@@ -698,6 +699,73 @@ async def delete_task(task_id: str, db: Session = Depends(get_db)) -> Dict[str, 
     db.delete(record)
     db.commit()
     return {"deleted": task_id}
+
+
+class PriorityFeedbackRequest(BaseModel):
+    task_id: str
+    task_title: str
+    source: str          # user_task | email | meeting | action_item
+    priority_level: str  # high | medium | low
+    rating: str          # relevant | noise
+    context_json: str    # JSON-encoded full task dict
+
+
+@app.post("/api/priority-feedback")
+async def record_priority_feedback(
+    body: PriorityFeedbackRequest,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Save a teacher's implicit or explicit rating for a Top-3 priority item.
+    'relevant' = marked done; 'noise' = dismissed as not useful.
+
+    These records are the raw dataset for future few-shot prompt injection
+    and potential LoRA fine-tuning of a small ranking model.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    record = PriorityFeedbackRecord(
+        id=str(uuid.uuid4()),
+        task_id=body.task_id,
+        task_title=body.task_title,
+        source=body.source,
+        priority_level=body.priority_level,
+        rating=body.rating,
+        context_json=body.context_json,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add(record)
+    db.commit()
+    return {"saved": True}
+
+
+@app.get("/api/priority-feedback/export")
+async def export_priority_feedback(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    """
+    Export all feedback records as a list — ready to convert to JSONL for fine-tuning.
+    Each record contains: task_title, source, priority_level, rating, context_json.
+    Filter by rating='relevant' for positive examples, 'noise' for negatives.
+    """
+    from sqlalchemy import select
+
+    records = db.execute(select(PriorityFeedbackRecord).order_by(
+        PriorityFeedbackRecord.created_at.desc()
+    )).scalars().all()
+
+    return [
+        {
+            "id": r.id,
+            "task_id": r.task_id,
+            "task_title": r.task_title,
+            "source": r.source,
+            "priority_level": r.priority_level,
+            "rating": r.rating,
+            "context": r.context_json,
+            "created_at": r.created_at,
+        }
+        for r in records
+    ]
 
 
 class WeeklyScheduleRequest(BaseModel):

@@ -227,6 +227,17 @@ export async function clearWeeklySchedule(): Promise<void> {
   await httpClient.delete('/api/weekly-schedule');
 }
 
+export async function recordPriorityFeedback(payload: {
+  task_id: string;
+  task_title: string;
+  source: string;
+  priority_level: string;
+  rating: 'relevant' | 'noise';
+  context_json: string;
+}): Promise<void> {
+  await httpClient.post('/api/priority-feedback', payload);
+}
+
 // ── Voice ────────────────────────────────────────────────────────────────────
 
 export const VoiceActionSchema = z.object({

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { deleteUserTask, dismissEmail, type PriorityItem } from '../lib/api/client';
+import { deleteUserTask, dismissEmail, recordPriorityFeedback, type PriorityItem } from '../lib/api/client';
 import { PriorityCard } from './PriorityCard';
 import { ActiveCard } from './ActiveCard';
 
@@ -24,6 +24,19 @@ function EmptyState() {
   );
 }
 
+function buildContextJson(item: PriorityItem): string {
+  return JSON.stringify({
+    id: item.id,
+    title: item.title,
+    source: item.source,
+    priority: item.priority,
+    estimated_time: item.estimated_time,
+    due_date: item.due_date,
+    class: item.class,
+    subject: item.subject,
+  });
+}
+
 export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }: PriorityListProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
@@ -42,26 +55,36 @@ export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }
   const remaining = priorities.filter((p) => !doneIds.has(p.id));
   const active = remaining.find((p) => p.id === activeId);
 
-  const handleDone = async (item: PriorityItem) => {
-    // Optimistically hide the card immediately
+  const dismiss = async (item: PriorityItem, rating: 'relevant' | 'noise') => {
     setDoneIds((prev) => new Set([...prev, item.id]));
     setActiveId(null);
 
-    // Persist to server based on source — meetings/action_items have no server delete
+    // Fire feedback silently — never block the UI on this
+    recordPriorityFeedback({
+      task_id: item.id,
+      task_title: item.title,
+      source: item.source ?? 'unknown',
+      priority_level: item.priority,
+      rating,
+      context_json: buildContextJson(item),
+    }).catch(() => {/* silent — training data, not critical */});
+
+    // Persist the actual deletion for user_task and email sources
     try {
-      if (item.source === 'user_task') {
-        // IDs are prefixed "user_<uuid>" — strip the prefix for the API call
-        const rawId = item.id.replace(/^user_/, '');
-        await deleteUserTask(rawId);
-        queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      } else if (item.source === 'email') {
-        await dismissEmail(item.id);
-        queryClient.invalidateQueries({ queryKey: ['important-emails'] });
+      if (rating === 'relevant') {
+        if (item.source === 'user_task') {
+          await deleteUserTask(item.id.replace(/^user_/, ''));
+          queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        } else if (item.source === 'email') {
+          await dismissEmail(item.id);
+          queryClient.invalidateQueries({ queryKey: ['important-emails'] });
+        }
+        queryClient.invalidateQueries({ queryKey: ['priorities'] });
       }
-      queryClient.invalidateQueries({ queryKey: ['priorities'] });
+      // 'noise' dismissal: just hide locally — the item will reappear next refresh,
+      // which is intentional until we have enough data to adjust the prompt.
     } catch (err) {
-      console.error('[PriorityList] Failed to delete priority item:', err);
-      // Don't undo the optimistic hide — a failed delete is better than a stale card reappearing
+      console.error('[PriorityList] Failed to persist dismissal:', err);
     }
   };
 
@@ -74,7 +97,8 @@ export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }
           priority={active}
           rank={rank}
           onBack={() => setActiveId(null)}
-          onDone={() => handleDone(active)}
+          onDone={() => dismiss(active, 'relevant')}
+          onNotRelevant={() => dismiss(active, 'noise')}
         />
       </section>
     );

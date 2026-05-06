@@ -139,6 +139,28 @@ class MeetingRecord(Base):
     recipient = Column(String, nullable=True)
 
 
+class PriorityFeedbackRecord(Base):
+    """
+    Each time a priority item is surfaced in the Top 3, its outcome is recorded here.
+    rating: "relevant" (marked done) | "noise" (dismissed as not relevant)
+
+    This table is the raw dataset for future few-shot prompt injection and,
+    when large enough, for LoRA / RLHF fine-tuning of a small classifier.
+    context_json stores the full task dict so all features are available later.
+    """
+
+    __tablename__ = "priority_feedback"
+
+    id = Column(String, primary_key=True)          # UUID
+    task_id = Column(String, nullable=False)        # e.g. "user_abc", "email_xyz"
+    task_title = Column(Text, nullable=False)
+    source = Column(String, nullable=False)         # user_task/email/meeting/action_item
+    priority_level = Column(String, nullable=False) # high/medium/low
+    rating = Column(String, nullable=False)         # "relevant" | "noise"
+    context_json = Column(Text, nullable=False)     # full task JSON for ML
+    created_at = Column(String, nullable=False)     # ISO-8601 UTC
+
+
 class EmailRecipientRecord(Base):
     """
     Tracks email addresses used in meeting email sends.
