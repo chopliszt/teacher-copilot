@@ -869,6 +869,7 @@ def _build_voice_context(
     schedule_data: Dict[str, Any],
     all_tasks: List[Dict[str, Any]],
     weekly_data: Optional[Dict[str, Any]],
+    session_notes: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> str:
     """Build a concise plain-text context summary for the voice Mistral call."""
     current_day = get_current_schedule_day()
@@ -906,9 +907,26 @@ def _build_voice_context(
                 f"{m.get('description')} at {m.get('time')}" for m in meetings
             )
 
+    # Include last-session notes for today's classes so Marimba can answer
+    # questions like "what did we do last time with 9A1?"
+    sessions_str = ""
+    if session_notes:
+        lines = []
+        for group, notes in session_notes.items():
+            note = notes.get("notes", "").strip()
+            what_worked = notes.get("what_worked", "").strip()
+            if note:
+                entry = f"- {group}: \"{note}\""
+                if what_worked:
+                    entry += f" (what worked: {what_worked})"
+                lines.append(entry)
+        if lines:
+            sessions_str = "\n\nLast session notes per class:\n" + "\n".join(lines)
+
     return (
         f"Schedule day {current_day}. Today's classes: {classes_str}.{meetings_str}\n\n"
         f"Pending tasks:\n{tasks_str}"
+        f"{sessions_str}"
     )
 
 
@@ -974,7 +992,36 @@ async def handle_voice(
             _email_to_task(e) for e in email_records
         ]
 
-        context = _build_voice_context(schedule_data, all_tasks, weekly_data)
+        # Gather last-session notes for every class in today's schedule so Marimba
+        # can answer questions about what happened in previous lessons.
+        from database import ClassSessionRecord
+        from sqlalchemy import desc as sql_desc
+
+        today_groups: List[str] = []
+        for day_sched in schedule_data.get("classes", []):
+            if day_sched.get("day") == get_current_schedule_day():
+                today_groups = [p["group"] for p in day_sched.get("periods", [])]
+                break
+
+        session_notes: Dict[str, Dict[str, str]] = {}
+        for group in today_groups:
+            last = (
+                db.execute(
+                    select(ClassSessionRecord)
+                    .where(ClassSessionRecord.group == group)
+                    .order_by(sql_desc(ClassSessionRecord.date), sql_desc(ClassSessionRecord.schedule_day))
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
+            if last:
+                session_notes[group] = {
+                    "notes": last.notes or "",
+                    "what_worked": last.what_worked or "",
+                }
+
+        context = _build_voice_context(schedule_data, all_tasks, weekly_data, session_notes)
 
         mistral_result = await call_voice_mistral(transcript, context)
 
