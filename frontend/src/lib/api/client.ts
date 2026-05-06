@@ -17,6 +17,7 @@ export const PriorityLevelSchema = z.enum(['high', 'medium', 'low']);
 
 export const PriorityItemSchema = z.object({
   id: z.string(),
+  source: z.enum(['user_task', 'email', 'meeting', 'action_item']).optional(),
   title: z.string(),
   priority: PriorityLevelSchema,
   estimated_time: z.string(),
@@ -220,6 +221,10 @@ export async function deleteUserTask(id: string): Promise<void> {
 export async function uploadWeeklySchedule(document_text: string): Promise<WeeklySchedule> {
   const response = await httpClient.post('/api/weekly-schedule', { document_text });
   return WeeklyScheduleSchema.parse(response.data);
+}
+
+export async function clearWeeklySchedule(): Promise<void> {
+  await httpClient.delete('/api/weekly-schedule');
 }
 
 // ── Voice ────────────────────────────────────────────────────────────────────

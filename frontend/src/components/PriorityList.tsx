@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { type PriorityItem } from '../lib/api/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { deleteUserTask, dismissEmail, type PriorityItem } from '../lib/api/client';
 import { PriorityCard } from './PriorityCard';
 import { ActiveCard } from './ActiveCard';
 
@@ -26,14 +27,14 @@ function EmptyState() {
 export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }: PriorityListProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
-  
+  const queryClient = useQueryClient();
+
   useEffect(() => {
     if (openPriorityId !== undefined) {
       setActiveId(openPriorityId);
     }
   }, [openPriorityId]);
 
-  // Respond to close_all — clear active card
   useEffect(() => {
     if (closeAllCounter > 0) setActiveId(null);
   }, [closeAllCounter]);
@@ -41,10 +42,27 @@ export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }
   const remaining = priorities.filter((p) => !doneIds.has(p.id));
   const active = remaining.find((p) => p.id === activeId);
 
-  const handleDone = () => {
-    if (!activeId) return;
-    setDoneIds((prev) => new Set([...prev, activeId]));
+  const handleDone = async (item: PriorityItem) => {
+    // Optimistically hide the card immediately
+    setDoneIds((prev) => new Set([...prev, item.id]));
     setActiveId(null);
+
+    // Persist to server based on source — meetings/action_items have no server delete
+    try {
+      if (item.source === 'user_task') {
+        // IDs are prefixed "user_<uuid>" — strip the prefix for the API call
+        const rawId = item.id.replace(/^user_/, '');
+        await deleteUserTask(rawId);
+        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      } else if (item.source === 'email') {
+        await dismissEmail(item.id);
+        queryClient.invalidateQueries({ queryKey: ['important-emails'] });
+      }
+      queryClient.invalidateQueries({ queryKey: ['priorities'] });
+    } catch (err) {
+      console.error('[PriorityList] Failed to delete priority item:', err);
+      // Don't undo the optimistic hide — a failed delete is better than a stale card reappearing
+    }
   };
 
   // Active card view — one task takes full focus
@@ -56,7 +74,7 @@ export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }
           priority={active}
           rank={rank}
           onBack={() => setActiveId(null)}
-          onDone={handleDone}
+          onDone={() => handleDone(active)}
         />
       </section>
     );

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { uploadWeeklySchedule } from '../lib/api/client';
+import { useClearWeeklySchedule } from '../lib/hooks/useWeeklySchedule';
 
 function isFriday(): boolean {
   return new Date().getDay() === 5;
@@ -8,14 +9,15 @@ function isFriday(): boolean {
 
 interface FridayBannerProps {
   hasWeeklyData: boolean;
+  weekLabel?: string;
 }
 
-export function FridayBanner({ hasWeeklyData }: FridayBannerProps) {
-  const showBanner = isFriday() || !hasWeeklyData;
+export function FridayBanner({ hasWeeklyData, weekLabel }: FridayBannerProps) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [text, setText] = useState('');
   const [done, setDone] = useState(false);
   const queryClient = useQueryClient();
+  const clearSchedule = useClearWeeklySchedule();
 
   const upload = useMutation({
     mutationFn: (content: string) => uploadWeeklySchedule(content),
@@ -29,7 +31,55 @@ export function FridayBanner({ hasWeeklyData }: FridayBannerProps) {
     },
   });
 
-  if (!showBanner) return null;
+  // Compact mode: data exists and it's not Friday — just show label + controls
+  if (hasWeeklyData && !isFriday()) {
+    return (
+      <div className="mb-6">
+        <div className="bg-stone-900/50 border border-stone-800/60 rounded-2xl px-4 py-2.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-stone-600 text-xs">📋</span>
+            <span className="text-stone-600 text-xs truncate">
+              {weekLabel || 'Weekly announcements loaded'}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <button
+              onClick={() => setPasteOpen((o) => !o)}
+              className="text-xs text-stone-600 hover:text-stone-400 transition-colors"
+            >
+              {pasteOpen ? 'cancel' : 'update'}
+            </button>
+            <button
+              onClick={() => clearSchedule.mutate()}
+              disabled={clearSchedule.isPending}
+              className="text-xs text-stone-700 hover:text-red-400 transition-colors disabled:opacity-40"
+            >
+              clear
+            </button>
+          </div>
+        </div>
+        {pasteOpen && (
+          <div className="mt-2 space-y-2">
+            <textarea
+              autoFocus
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Paste the full text of the weekly announcement emails here…"
+              rows={6}
+              className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2.5 text-stone-300 text-sm placeholder-stone-700 resize-none focus:outline-none focus:border-stone-600"
+            />
+            <button
+              onClick={() => upload.mutate(text)}
+              disabled={!text.trim() || upload.isPending}
+              className="w-full py-2.5 rounded-xl bg-stone-700 hover:bg-stone-600 disabled:opacity-40 disabled:cursor-not-allowed text-stone-200 text-sm font-medium transition-all"
+            >
+              {upload.isPending ? 'Processing…' : 'Process announcements'}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="mb-6">

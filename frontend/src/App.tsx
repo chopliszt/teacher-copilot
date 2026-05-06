@@ -110,6 +110,7 @@ export default function App() {
 
   const priorities = data?.priorities ?? [];
   const hasWeeklyData = !!(weeklySchedule?.week_label);
+  const weekLabel = weeklySchedule?.week_label;
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50">
@@ -118,7 +119,7 @@ export default function App() {
         <div id="today-schedule">
           <TodaySchedule openGroup={voiceOpenGroup} closeAllCounter={closeAllCounter} />
         </div>
-        <FridayBanner hasWeeklyData={hasWeeklyData} />
+        <FridayBanner hasWeeklyData={hasWeeklyData} weekLabel={weekLabel} />
         <div id="priorities-section">
           <PriorityList priorities={priorities} openPriorityId={voiceOpenPriority} closeAllCounter={closeAllCounter} />
         </div>

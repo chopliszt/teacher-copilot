@@ -261,15 +261,22 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0 }: TodayScheduleP
   const { data: absences = [] } = useAbsences();
   const { data: weeklySchedule } = useWeeklySchedule();
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [peekOffset, setPeekOffset] = useState(0);
 
-  // Respond to voice-triggered group opens
+  // Respond to voice-triggered group opens — always snap back to today
   useEffect(() => {
-    if (openGroup) setSelectedGroup(openGroup);
+    if (openGroup) {
+      setPeekOffset(0);
+      setSelectedGroup(openGroup);
+    }
   }, [openGroup]);
 
   // Respond to close_all — clear internal state
   useEffect(() => {
-    if (closeAllCounter > 0) setSelectedGroup(null);
+    if (closeAllCounter > 0) {
+      setSelectedGroup(null);
+      setPeekOffset(0);
+    }
   }, [closeAllCounter]);
 
   if (isLoading || !schedule) return null;
@@ -282,22 +289,36 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0 }: TodayScheduleP
   const isWeekend = forcedDay === null && (jsDay === 0 || jsDay === 6);
   const currentDay = forcedDay ?? schedule.current_day;
 
-  const todayEntry = schedule.classes.find((day) => day.day === currentDay);
-  const periodsToday = isWeekend ? [] : (todayEntry?.periods ?? []);
+  // Peek: compute which schedule day to display (wraps 1–6)
+  const displayDay = peekOffset === 0
+    ? currentDay
+    : ((currentDay - 1 + peekOffset) % 6 + 6) % 6 + 1;
 
-  // Disruptions that apply to today's schedule day
-  const todayDisruptions: ClassDisruption[] = (weeklySchedule?.class_disruptions ?? [])
-    .filter((d) => d.schedule_day === currentDay);
+  const displayEntry = schedule.classes.find((d) => d.day === displayDay);
+  const periodsDisplay = (isWeekend && peekOffset === 0) ? [] : (displayEntry?.periods ?? []);
 
-  const disruptionCount = todayDisruptions.length;
+  const displayDisruptions: ClassDisruption[] = (weeklySchedule?.class_disruptions ?? [])
+    .filter((d) => d.schedule_day === displayDay);
 
-  const dayLabel = isWeekend ? 'Weekend' : `Day ${currentDay}`;
+  const disruptionCount = displayDisruptions.length;
 
-  const sectionLabel = periodsToday.length > 0
-    ? `Today's Classes · ${dayLabel} · ${periodsToday.length} period${periodsToday.length !== 1 ? 's' : ''}`
-    : `Today's Classes · ${dayLabel}`;
+  const handlePeek = (delta: number) => {
+    setPeekOffset((prev) => prev + delta);
+    setSelectedGroup(null);
+  };
 
-  const selectedPeriod = periodsToday.find((p) => p.group === selectedGroup) ?? null;
+  const dayLabel = (isWeekend && peekOffset === 0) ? 'Weekend' : `Day ${displayDay}`;
+  const peekLabel = peekOffset === 0
+    ? "Today's Classes"
+    : peekOffset === 1 ? 'Tomorrow'
+    : peekOffset === -1 ? 'Yesterday'
+    : `${peekOffset > 0 ? 'In' : ''} ${Math.abs(peekOffset)} days`;
+
+  const sectionLabel = periodsDisplay.length > 0
+    ? `${peekLabel} · ${dayLabel} · ${periodsDisplay.length} period${periodsDisplay.length !== 1 ? 's' : ''}`
+    : `${peekLabel} · ${dayLabel}`;
+
+  const selectedPeriod = periodsDisplay.find((p) => p.group === selectedGroup) ?? null;
 
   const handleChipClick = (group: string) => {
     setSelectedGroup((prev) => (prev === group ? null : group));
@@ -306,13 +327,42 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0 }: TodayScheduleP
   return (
     <div className="mb-8">
       <div className="flex items-center gap-2 mb-1">
-        <div className={`w-1.5 h-1.5 rounded-full ${disruptionCount > 0 ? 'bg-amber-500/60' : 'bg-stone-600'}`} />
-        <h2 className="text-stone-500 text-xs font-semibold tracking-widest uppercase">
+        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${disruptionCount > 0 ? 'bg-amber-500/60' : 'bg-stone-600'}`} />
+        <h2 className="text-stone-500 text-xs font-semibold tracking-widest uppercase flex-1">
           {sectionLabel}
         </h2>
+        {/* Peek arrows */}
+        <div className="flex items-center gap-1 ml-auto">
+          <button
+            onClick={() => handlePeek(-1)}
+            aria-label="Previous day"
+            className="text-stone-700 hover:text-stone-400 transition-colors p-0.5"
+          >
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="7 1 3 5.5 7 10" />
+            </svg>
+          </button>
+          {peekOffset !== 0 && (
+            <button
+              onClick={() => { setPeekOffset(0); setSelectedGroup(null); }}
+              className="text-stone-600 hover:text-stone-400 text-xs transition-colors px-1"
+            >
+              today
+            </button>
+          )}
+          <button
+            onClick={() => handlePeek(1)}
+            aria-label="Next day"
+            className="text-stone-700 hover:text-stone-400 transition-colors p-0.5"
+          >
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 1 8 5.5 4 10" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {/* Disruption subtitle — only when there's something today */}
+      {/* Disruption subtitle */}
       {disruptionCount > 0 && (
         <p className="text-amber-500/60 text-xs mb-3 pl-3.5">
           {disruptionCount === 1
@@ -322,12 +372,14 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0 }: TodayScheduleP
       )}
       {disruptionCount === 0 && <div className="mb-3" />}
 
-      {periodsToday.length > 0 ? (
+      {periodsDisplay.length > 0 ? (
         <>
           <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {periodsToday.map((period, index) => {
-              const groupAbsences = absences.filter((a) => a.group_name === period.group);
-              const groupDisruptions = todayDisruptions.filter((d) =>
+            {periodsDisplay.map((period, index) => {
+              const groupAbsences = peekOffset === 0
+                ? absences.filter((a) => a.group_name === period.group)
+                : [];
+              const groupDisruptions = displayDisruptions.filter((d) =>
                 groupIsAffected(d, period.group)
               );
               return (
@@ -347,7 +399,7 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0 }: TodayScheduleP
             <BriefingPanel
               period={selectedPeriod}
               absentStudents={absences.filter((a) => a.group_name === selectedPeriod.group)}
-              disruptions={todayDisruptions.filter((d) =>
+              disruptions={displayDisruptions.filter((d) =>
                 groupIsAffected(d, selectedPeriod.group)
               )}
               onClose={() => setSelectedGroup(null)}
@@ -356,7 +408,7 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0 }: TodayScheduleP
         </>
       ) : (
         <p className="text-stone-700 text-sm">
-          {isWeekend ? 'Enjoy the rest.' : 'No classes scheduled today.'}
+          {isWeekend && peekOffset === 0 ? 'Enjoy the rest.' : 'No classes scheduled.'}
         </p>
       )}
     </div>
