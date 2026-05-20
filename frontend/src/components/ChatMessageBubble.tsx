@@ -3,10 +3,94 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { parseEmailArtifact } from '../lib/parseEmailArtifact';
 import { EmailComposer } from './EmailComposer';
+import type { ChatToolCall } from '../lib/api/client';
 
 interface ChatMessageBubbleProps {
   role: 'user' | 'assistant';
   content: string;
+  toolCalls?: ChatToolCall[];
+}
+
+const TOOL_LABEL: Record<string, string> = {
+  search_sent_emails: 'Searched sent emails',
+  search_inbox: 'Searched inbox',
+  get_full_email: 'Opened email',
+};
+
+function ToolCallChips({ toolCalls }: { toolCalls: ChatToolCall[] }) {
+  if (!toolCalls.length) return null;
+  return (
+    <div className="mr-auto max-w-[90%] space-y-1 mb-1">
+      {toolCalls.map((tc, i) => (
+        <ToolCallChip key={i} call={tc} />
+      ))}
+    </div>
+  );
+}
+
+function ToolCallChip({ call }: { call: ChatToolCall }) {
+  const [open, setOpen] = useState(false);
+  const label = TOOL_LABEL[call.name] ?? call.name;
+  const query = (call.args?.query as string) || (call.args?.message_id as string) || '';
+  const detail = call.error
+    ? `error: ${call.error}`
+    : call.result_count != null
+    ? `${call.result_count} match${call.result_count === 1 ? '' : 'es'}`
+    : 'done';
+  const hasMatches = (call.matches?.length ?? 0) > 0;
+
+  return (
+    <div>
+      <button
+        onClick={() => hasMatches && setOpen((o) => !o)}
+        disabled={!hasMatches}
+        className={`inline-flex items-center gap-1.5 text-[0.7rem] text-stone-500 bg-stone-900/60 border border-stone-800 rounded-full px-2 py-0.5 ${hasMatches ? 'hover:border-stone-700 cursor-pointer' : 'cursor-default'}`}
+        title={query ? `query: ${query}` : undefined}
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400/70">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <span className="text-stone-400">{label}</span>
+        {query && (
+          <span className="text-stone-600 italic truncate max-w-[140px]">
+            “{query}”
+          </span>
+        )}
+        <span className="text-stone-600">· {detail}</span>
+        {hasMatches && (
+          <svg
+            width="9" height="9" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            className={`text-stone-600 transition-transform ${open ? 'rotate-180' : ''}`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        )}
+      </button>
+      {open && hasMatches && (
+        <ul className="mt-1 ml-3 space-y-0.5 text-[0.7rem]">
+          {call.matches!.map((m, i) => (
+            <li key={`${m.id}-${i}`} className="text-stone-500 truncate">
+              <span className="text-stone-300">{m.subject || '(no subject)'}</span>
+              {m.from && (
+                <span className="text-stone-600"> · {senderShort(m.from)}</span>
+              )}
+              {m.date && (
+                <span className="text-stone-700"> · {m.date.slice(0, 10)}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function senderShort(raw: string): string {
+  const match = raw.match(/^([^<]+?)\s*<.+>$/);
+  if (match) return match[1].trim();
+  return raw;
 }
 
 /**
@@ -23,7 +107,7 @@ interface ChatMessageBubbleProps {
  * the entire message (raw markdown), which is handy when the response
  * is conversational but the teacher wants to lift the whole thing.
  */
-export function ChatMessageBubble({ role, content }: ChatMessageBubbleProps) {
+export function ChatMessageBubble({ role, content, toolCalls }: ChatMessageBubbleProps) {
   if (role === 'user') {
     return (
       <div className="ml-auto max-w-[85%] bg-amber-500/10 border border-amber-500/20 text-stone-200 text-sm px-3 py-2 rounded-2xl rounded-br-md whitespace-pre-wrap">
@@ -33,17 +117,20 @@ export function ChatMessageBubble({ role, content }: ChatMessageBubbleProps) {
   }
 
   return (
-    <div className="mr-auto max-w-[90%] bg-stone-900 border border-stone-800 text-stone-300 text-sm rounded-2xl rounded-bl-md group">
-      <div className="px-3 pt-2 pb-1 flex items-center justify-end">
-        <CopyButton text={content} label="copy reply" />
-      </div>
-      <div className="px-3 pb-3 prose-marimba">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={MARKDOWN_COMPONENTS}
-        >
-          {content}
-        </ReactMarkdown>
+    <div>
+      {toolCalls && toolCalls.length > 0 && <ToolCallChips toolCalls={toolCalls} />}
+      <div className="mr-auto max-w-[90%] bg-stone-900 border border-stone-800 text-stone-300 text-sm rounded-2xl rounded-bl-md group">
+        <div className="px-3 pt-2 pb-1 flex items-center justify-end">
+          <CopyButton text={content} label="copy reply" />
+        </div>
+        <div className="px-3 pb-3 prose-marimba">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={MARKDOWN_COMPONENTS}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
       </div>
     </div>
   );

@@ -91,13 +91,20 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
     setChatError(null);
 
     try {
-      const { reply } = await chatWithTask({
+      const result = await chatWithTask({
         task_id: priority.id,
         source: priority.source ?? 'unknown',
         title: priority.title,
-        messages: next,
+        messages: next.map((m) => ({ role: m.role, content: m.content })),
       });
-      setMessages([...next, { role: 'assistant', content: reply }]);
+      setMessages([
+        ...next,
+        {
+          role: 'assistant',
+          content: result.reply,
+          tool_calls: result.tool_calls,
+        },
+      ]);
     } catch (err) {
       setChatError(
         err instanceof Error
@@ -228,7 +235,12 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
             </p>
           )}
           {messages.map((m, i) => (
-            <ChatMessageBubble key={i} role={m.role} content={m.content} />
+            <ChatMessageBubble
+              key={i}
+              role={m.role}
+              content={m.content}
+              toolCalls={m.tool_calls}
+            />
           ))}
           {chatPending && (
             <div className="mr-auto max-w-[85%] bg-stone-900 border border-stone-800 text-stone-500 text-sm px-3 py-2 rounded-2xl rounded-bl-md">

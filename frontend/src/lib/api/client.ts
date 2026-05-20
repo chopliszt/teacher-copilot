@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { z } from 'zod';
+import { stripEmailMarkdown } from '../parseEmailArtifact';
 
 // Empty string → relative URLs, which Vite proxy (dev) and nginx (prod) both handle.
 // Set VITE_API_URL only if you need to hit a remote backend directly.
@@ -276,6 +277,30 @@ export type ChatRole = 'user' | 'assistant';
 export interface ChatMessage {
   role: ChatRole;
   content: string;
+  // Only present on assistant messages produced by the backend — describes
+  // any Gmail tool calls Marimba made to answer that turn. The backend
+  // ignores this field if it shows up in inbound history.
+  tool_calls?: ChatToolCall[];
+}
+
+export interface ChatToolMatch {
+  id: string;
+  subject: string;
+  from: string;
+  date: string;
+}
+
+export interface ChatToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  result_count?: number | null;
+  matches?: ChatToolMatch[];
+  error?: string;
+}
+
+export interface ChatTurnResponse {
+  reply: string;
+  tool_calls?: ChatToolCall[];
 }
 
 export async function chatWithTask(payload: {
@@ -283,9 +308,13 @@ export async function chatWithTask(payload: {
   source: string;
   title: string;
   messages: ChatMessage[];
-}): Promise<{ reply: string }> {
-  const response = await httpClient.post('/api/chat/task', payload, { timeout: 60_000 });
-  return response.data as { reply: string };
+}): Promise<ChatTurnResponse> {
+  const response = await httpClient.post('/api/chat/task', payload, { timeout: 120_000 });
+  const data = response.data as { reply?: string; tool_calls?: ChatToolCall[] };
+  return {
+    reply: data.reply ?? '',
+    tool_calls: data.tool_calls ?? [],
+  };
 }
 
 export async function draftEmailReply(
@@ -297,7 +326,10 @@ export async function draftEmailReply(
     { messages },
     { timeout: 60_000 },
   );
-  return response.data as { to: string; subject: string; body: string };
+  const data = response.data as { to: string; subject: string; body: string };
+  // Mistral occasionally leaks markdown into the body — strip it so the draft
+  // is plain text by the time it hits the editable preview.
+  return { ...data, body: stripEmailMarkdown(data.body ?? '') };
 }
 
 export async function sendEmailReply(

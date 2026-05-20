@@ -25,19 +25,6 @@ Ranked by urgency and ADHD value. Work top to bottom. Don't start item N+1 until
 - **Auto-populate contacts:** on sync, pull top 50 recipients from Gmail sent history into the contacts table. No manual entry needed for regular collaborators. You can add aliases for anyone new.
 **Effort:** ~5 hours (including contacts auto-import)
 
-### 3. General-purpose assistant — Marimba as drafting + parent-FAQ tool
-**What:** Today's "Chat to solve" drawer handles per-task questions. Next step: let the teacher ask broader, context-spanning things ("draft a reply to all parents asking about the Microsoft trip using what I've already sent", "summarize what I've told 8th grade families this month") without leaving the app.
-
-**Recommended shape (single agent + tools, NOT multi-agent):**
-- One Marimba, more tools. New chat actions: `draft_broadcast(topic, audience)`, `summarize_thread(query)`, `find_sent_context(topic)`.
-- The teacher describes intent in natural language; Marimba picks the right tool. Same approach Claude Code uses — one mental model for the user, one prompt to debug, no routing logic.
-
-**Why not a fleet of specialized clones:**
-- More plumbing (routing, handoff prompts, separate contexts) for the same end result.
-- Specialization hides where mistakes come from; with one assistant you always know where to edit the prompt.
-
-**Effort:** ~6–8 hours (Gmail thread search tool + broadcast composer + prompt updates).
-
 ---
 
 ## 🟢 When you have data (no rush)
@@ -79,6 +66,8 @@ Ranked by urgency and ADHD value. Work top to bottom. Don't start item N+1 until
 
 ## ✅ Done
 
+- **Marimba can search the inbox + sent mail via tool calling** (2026-05-20) — Chat to solve now exposes three Gmail tools to Marimba (`search_sent_emails`, `search_inbox`, `get_full_email`), scoped to the last 90 days. She decides when to call them based on what the teacher asks. Tool-call loop caps at 3 iterations. The UI shows small "Searched sent emails — 2 matches" chips above her reply so the teacher sees what she actually did.
+- **Email composer in chat + attachments + addressbook seeding** (2026-05-20) — Marimba drafts new emails inline as a structured composer (To with autocomplete, Subject, Body, file attachments up to 20 MB). `email_recipients` is now seeded from inbox senders too.
 - **Chat polish — schedule context, markdown rendering, copy buttons, personal context, artifact cards, skip rating** (2026-05-20) — Chat now knows today's schedule (no more "your class is 7B" when the UI says 9A1). Markdown is rendered, every assistant reply has a copy button, and code-fenced artifacts render as a styled card with their own copy button. Settings modal now has two fields: "About me / How I work" (style guidance, ADHD considerations) and "Ignore rules" (filter signal). Third dismissal option added: "doesn't apply this week" — clears at next weekly announcements upload, doesn't pollute the future ML training set.
 - **Chat to solve** (2026-05-20) — Every Top 3 card opens a right-side drawer. Marimba chats with full task context, drafts email replies that thread back into the original Gmail conversation, plays the canned audio on send.
 - **Personal ignore rules** (2026-05-19) — Gear-icon settings modal; ignore rules injected into both priority and email-triage prompts. Plus pre-rendered "Listo profe" audio that plays on every successful meeting-email send.

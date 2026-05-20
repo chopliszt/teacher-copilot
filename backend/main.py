@@ -932,13 +932,15 @@ async def chat_task(
         except Exception as e:
             print(f"[Chat] Could not build schedule block: {e}")
 
-    reply = await call_task_chat(task_context, messages, schedule_block=schedule_block)
+    reply, tool_calls = await call_task_chat(
+        task_context, messages, schedule_block=schedule_block
+    )
     if reply is None:
         raise HTTPException(
             status_code=503,
             detail="Mistral is not reachable right now. Try again in a moment.",
         )
-    return {"reply": reply}
+    return {"reply": reply, "tool_calls": tool_calls}
 
 
 class DraftReplyRequest(BaseModel):

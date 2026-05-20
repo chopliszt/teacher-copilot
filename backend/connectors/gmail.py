@@ -367,6 +367,137 @@ def send_reply(
         return False
 
 
+def _search_emails(query: str, limit: int) -> List[Dict[str, Any]]:
+    """
+    Internal: run a Gmail search and fetch the full body of each match.
+    Returns a list of dicts the chat tool can hand directly to Mistral.
+
+    `query` should already include scope (e.g. "in:sent newer_than:90d ...")
+    so callers control the search surface explicitly.
+    """
+    service = _get_gmail_service()
+    if not service:
+        return []
+
+    try:
+        results = (
+            service.users()
+            .messages()
+            .list(userId="me", q=query, maxResults=max(1, min(limit, 20)))
+            .execute()
+        )
+        msg_ids = [m["id"] for m in results.get("messages", [])][:limit]
+
+        out: List[Dict[str, Any]] = []
+        for mid in msg_ids:
+            detail = (
+                service.users()
+                .messages()
+                .get(userId="me", id=mid, format="full")
+                .execute()
+            )
+            headers = detail["payload"].get("headers", [])
+            def _h(name: str) -> str:
+                return next(
+                    (h["value"] for h in headers if h["name"].lower() == name.lower()),
+                    "",
+                )
+            body = _extract_body(detail.get("payload", {}))
+            # Internal date is unix ms — convert to a readable ISO string
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                iso = _dt.fromtimestamp(
+                    int(detail.get("internalDate", "0")) / 1000, tz=_tz.utc
+                ).isoformat()
+            except Exception:
+                iso = ""
+            out.append({
+                "id": mid,
+                "thread_id": detail.get("threadId", mid),
+                "subject": _h("Subject") or "(no subject)",
+                "from": _h("From"),
+                "to": _h("To"),
+                "date": iso,
+                # Truncate body so tool results stay token-bounded — Mistral
+                # rarely needs more than ~2k chars to understand context.
+                "body": (body or detail.get("snippet", ""))[:2000],
+            })
+        return out
+    except HttpError as error:
+        print(f"[Gmail search] HTTP error: {error}")
+        return []
+    except Exception as error:
+        print(f"[Gmail search] Unexpected error: {error}")
+        return []
+
+
+def search_sent_emails(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Search the teacher's sent mail from the last 90 days.
+
+    `query` is a free-text Gmail search clause; we prepend the scope.
+    Gmail's search is forgiving — both "Microsoft visit" and "subject:gira"
+    work. 90-day window is a tradeoff: faster API responses, less context
+    bloat, covers the vast majority of "what did I tell people about X" cases.
+    """
+    if not query.strip():
+        return []
+    full_query = f"in:sent newer_than:90d {query.strip()}"
+    return _search_emails(full_query, limit)
+
+
+def search_inbox_emails(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """Search the teacher's inbox from the last 90 days — same scope rules as sent."""
+    if not query.strip():
+        return []
+    full_query = f"in:inbox newer_than:90d {query.strip()}"
+    return _search_emails(full_query, limit)
+
+
+def get_full_email(message_id: str) -> Dict[str, Any] | None:
+    """
+    Fetch one specific message by id with its full body. Used when Marimba
+    finds a candidate via search and wants to dig deeper before answering.
+    Returns the same shape as search results so the model sees a uniform schema.
+    """
+    service = _get_gmail_service()
+    if not service:
+        return None
+    try:
+        detail = (
+            service.users()
+            .messages()
+            .get(userId="me", id=message_id, format="full")
+            .execute()
+        )
+        headers = detail["payload"].get("headers", [])
+        def _h(name: str) -> str:
+            return next(
+                (h["value"] for h in headers if h["name"].lower() == name.lower()),
+                "",
+            )
+        body = _extract_body(detail.get("payload", {}))
+        from datetime import datetime as _dt, timezone as _tz
+        try:
+            iso = _dt.fromtimestamp(
+                int(detail.get("internalDate", "0")) / 1000, tz=_tz.utc
+            ).isoformat()
+        except Exception:
+            iso = ""
+        return {
+            "id": message_id,
+            "thread_id": detail.get("threadId", message_id),
+            "subject": _h("Subject") or "(no subject)",
+            "from": _h("From"),
+            "to": _h("To"),
+            "date": iso,
+            "body": body or detail.get("snippet", ""),
+        }
+    except Exception as error:
+        print(f"[Gmail get_full_email] error: {error}")
+        return None
+
+
 def fetch_email_detail(message_id: str) -> Dict[str, Any] | None:
     """
     Pull the full body + threading headers for a single message we already
