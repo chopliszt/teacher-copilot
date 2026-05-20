@@ -125,6 +125,14 @@ function CodeBlock({ inline, className, children }: CodeProps) {
   // this is — show it as the card header so the teacher knows what they're
   // about to copy.
   const language = className?.replace(/^language-/, '') || 'artifact';
+
+  // Special-case: ```email blocks become a real composer with Send + attachments.
+  // Falls through to the generic artifact card if parsing fails.
+  if (language === 'email') {
+    const parsed = parseEmailArtifact(text);
+    if (parsed) return <EmailComposer initial={parsed} />;
+  }
+
   const headerLabel = LANGUAGE_LABEL[language] ?? language;
 
   return (
