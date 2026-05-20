@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { parseEmailArtifact } from '../lib/parseEmailArtifact';
+import { EmailComposer } from './EmailComposer';
 
 interface ChatMessageBubbleProps {
   role: 'user' | 'assistant';
