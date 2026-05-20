@@ -19,27 +19,79 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from context_builder import TEACHER_PROFILE
-from preferences import get_ignore_rules
+from preferences import get_ignore_rules, get_personal_context
+
+
+# ── Output formatting rules (shared across chat + draft) ──────────────────────
+
+_FORMATTING_RULES = """
+Output formatting rules:
+- Match the language the teacher writes in (Spanish or English).
+- Keep replies short and direct. The teacher has ADHD — long walls of text
+  are noise. Use bullets only when listing multiple parallel items.
+- You can use markdown (bold, italics, lists, tables) — the UI renders it.
+
+- When you DRAFT AN EMAIL the teacher wants to send (a NEW email — a
+  forward, a freeform message, sending the same content to a different
+  address), wrap it in a fenced block tagged `email` with this EXACT
+  structure (no extra prose inside the block):
+
+    ```email
+    To: someone@example.com
+    Subject: <one-line subject>
+    Body:
+    <multi-line plain-text body, including the signoff>
+    ```
+
+  The UI parses this into an editable composer (To / Subject / Body
+  fields + Send button + optional attachments). If you're not sure who
+  it goes to, put a placeholder like `To: <fill in>` — the teacher will
+  edit before sending.
+
+  Use this format for NEW emails ONLY. For replying to the SAME email
+  this task is about, tell the teacher to use the "Draft a reply" button
+  instead (it threads into the original Gmail conversation).
+
+- For OTHER copyable artifacts, use the matching fence tag — but do NOT
+  use the To/Subject/Body structure:
+    ```prompt   for a prompt to paste into another AI tool
+    ```handout  for a handout
+    ```draft    for a draft text (non-email)
+
+- Plain conversational text MUST stay outside code fences.
+""".strip()
 
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 
-def _build_system_prompt(task_context: str) -> str:
+def _build_system_prompt(
+    task_context: str,
+    schedule_block: str = "",
+) -> str:
     ignore_rules = get_ignore_rules()
+    personal_context = get_personal_context()
+
+    personal_block = (
+        f"\nABOUT THE TEACHER / HOW THEY LIKE TO WORK (always honour this when "
+        f"producing slides, handouts, prompts, drafts):\n{personal_context}\n"
+        if personal_context else ""
+    )
     ignore_block = (
-        f"\n\nTeacher's personal ignore rules — anything matching these is "
-        f"low value; respect them when advising:\n{ignore_rules}"
+        f"\nIGNORE RULES — things the teacher treats as low value:\n{ignore_rules}\n"
         if ignore_rules else ""
     )
+    schedule_section = f"\n{schedule_block}\n" if schedule_block else ""
+
     return f"""You are Marimba, the teacher's focused assistant working through ONE task.
 {TEACHER_PROFILE}
-{ignore_block}
+{personal_block}{ignore_block}{schedule_section}
+{_FORMATTING_RULES}
 
 The teacher has opened a chat to solve the task below. Help them resolve it
-quickly. Be direct, conversational, and short. Reply in the language the
-teacher writes to you in (Spanish or English). Do not make up information
-the task context does not provide. If you don't know something, say so and
-ask the teacher.
+quickly. Do not make up information the task context does not provide — if
+you don't know something, say so and ask. When the teacher asks about
+"today" (classes, meetings, etc.), use the SCHEDULE section above as the
+source of truth — never guess from the task title alone.
 
 TASK CONTEXT (read carefully — this is what we're solving):
 {task_context}
@@ -51,6 +103,7 @@ TASK CONTEXT (read carefully — this is what we're solving):
 async def call_task_chat(
     task_context: str,
     messages: List[Dict[str, str]],
+    schedule_block: str = "",
 ) -> Optional[str]:
     """
     Run one turn of conversation.
@@ -60,6 +113,10 @@ async def call_task_chat(
                       sender, full email body, etc.).
         messages: List of {"role": "user"|"assistant", "content": str},
                   ordered oldest-first.
+        schedule_block: Pre-formatted today's-schedule text, produced by
+                        context_builder.format_schedule_block(). Lets Marimba
+                        answer "what's my next class?" correctly instead of
+                        guessing from the task title.
 
     Returns:
         The assistant's reply text, or None if Mistral is not configured /
@@ -69,7 +126,7 @@ async def call_task_chat(
     if not api_key:
         return None
 
-    system_prompt = _build_system_prompt(task_context)
+    system_prompt = _build_system_prompt(task_context, schedule_block=schedule_block)
     chat_messages: List[Dict[str, Any]] = [
         {"role": "system", "content": system_prompt}
     ] + [{"role": m["role"], "content": m["content"]} for m in messages]
@@ -108,6 +165,11 @@ async def draft_email_reply(
         return None
 
     ignore_rules = get_ignore_rules()
+    personal_context = get_personal_context()
+    personal_block = (
+        f"\n\nABOUT THE TEACHER / HOW THEY LIKE TO WRITE:\n{personal_context}"
+        if personal_context else ""
+    )
     ignore_block = (
         f"\n\nThe teacher's personal ignore rules (just for tone calibration; "
         f"not for filtering): {ignore_rules}"
@@ -116,7 +178,7 @@ async def draft_email_reply(
 
     system_prompt = f"""You are drafting an email reply on behalf of a teacher.
 {TEACHER_PROFILE}
-{ignore_block}
+{personal_block}{ignore_block}
 
 Write a reply to the email below, taking into account the chat conversation
 the teacher had with Marimba — that conversation tells you the teacher's

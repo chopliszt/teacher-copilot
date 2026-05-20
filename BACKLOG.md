@@ -25,48 +25,40 @@ Ranked by urgency and ADHD value. Work top to bottom. Don't start item N+1 until
 - **Auto-populate contacts:** on sync, pull top 50 recipients from Gmail sent history into the contacts table. No manual entry needed for regular collaborators. You can add aliases for anyone new.
 **Effort:** ~5 hours (including contacts auto-import)
 
-### 3. Personal ignore rules
-**What:** A single editable text field: *"chairs at end of day, uniform checks unless direct parent complaint, grade 11-12 emails with no direct ask to me."* Injected into Mistral triage and priority prompts.
-**How:** `data/user_preferences.json` → one field `ignore_rules: str`. Gear icon somewhere unobtrusive → modal with one textarea. Two backend endpoints: GET + PUT.
-**Effort:** ~2 hours
+### 3. General-purpose assistant — Marimba as drafting + parent-FAQ tool
+**What:** Today's "Chat to solve" drawer handles per-task questions. Next step: let the teacher ask broader, context-spanning things ("draft a reply to all parents asking about the Microsoft trip using what I've already sent", "summarize what I've told 8th grade families this month") without leaving the app.
+
+**Recommended shape (single agent + tools, NOT multi-agent):**
+- One Marimba, more tools. New chat actions: `draft_broadcast(topic, audience)`, `summarize_thread(query)`, `find_sent_context(topic)`.
+- The teacher describes intent in natural language; Marimba picks the right tool. Same approach Claude Code uses — one mental model for the user, one prompt to debug, no routing logic.
+
+**Why not a fleet of specialized clones:**
+- More plumbing (routing, handoff prompts, separate contexts) for the same end result.
+- Specialization hides where mistakes come from; with one assistant you always know where to edit the prompt.
+
+**Effort:** ~6–8 hours (Gmail thread search tool + broadcast composer + prompt updates).
 
 ---
 
 ## 🟢 When you have data (no rush)
 
 ### 4. ML priority personalization
-**Status:** Already collecting data silently.
-- "Mark done" → `completed: true` (feature, not label)
-- "not relevant for me" → `rating: noise` (the training label)
-- Implicit positive: shown in Top 3 and NOT dismissed as noise
+**Status:** Already collecting data silently. Three signals now:
+- "Mark done" → `rating: relevant` (positive training signal)
+- "doesn't apply this week" → `rating: skip` (neutral — clears at next weekly upload, kept separate from training data)
+- "not relevant for me" → `rating: noise` (strong negative training signal)
 
 **Activation path:**
 - ~20 noise examples → inject as few-shot negatives in Mistral prompt. Instant improvement.
 - ~100 examples → fine-tune small classifier (export via `GET /api/priority-feedback/export` → JSONL for LoRA/Mistral fine-tune API).
 - The `context_json` field stores all features needed: title, source, priority level, class, subject, estimated time.
 
-**Note:** Don't add more feedback UI. One "not relevant" signal is enough. The system is already working well — this is an enhancement, not a fix.
+**Note:** Don't add more feedback UI. The three current signals are enough — this is an enhancement, not a fix.
 
 ### 5. Session history view per class
 **What:** Inside the class briefing panel, an expandable "view past sessions" list for that group.
 **Status:** All data is in DB. Needs `GET /api/class/{group}/sessions` endpoint + small UI component in `TodaySchedule.tsx`.
 **Effort:** ~1 hour
-
-### 6. General-purpose assistant — context-aware drafting + parent FAQ
-**What:** Marimba should handle open-ended asks tied to school context, not just trigger actions. Concrete trigger: parents keep emailing about the Microsoft trip even though the answer is already in past emails — the teacher wants to say *"draft a reply with the trip context"* or *"summarize what I've already told parents about this trip and propose an auto-reply"* and have Marimba do it.
-
-**Recommended shape (single agent + tools, NOT multi-agent):**
-- One Marimba, more tools. New voice/chat actions: `draft_email(recipient, topic, tone?)`, `summarize_thread(query)`, `find_sent_context(topic)`.
-- The teacher describes intent in natural language; Marimba picks the right tool. Same model behavior Claude Code uses — keeps one mental model for the user, one prompt to debug, no routing logic.
-
-**Why not a fleet of specialized clones:**
-- More plumbing (routing, handoff prompts, separate contexts) for the same end result.
-- Specialization hides where mistakes come from; with one assistant you always know who to blame and where to edit the prompt.
-- Worth revisiting only if/when one domain (e.g., a recurring trip with weeks of artifacts) grows so much that its context crowds out everything else.
-
-**Tied to:** item 3 (ignore rules) and the "memory" question — once memory injection is solid, this just becomes "Marimba + email drafting tool".
-
-**Effort:** ~6–8 hours (Gmail thread search tool + draft-mode UI + prompt updates).
 
 ---
 
@@ -87,6 +79,9 @@ Ranked by urgency and ADHD value. Work top to bottom. Don't start item N+1 until
 
 ## ✅ Done
 
+- **Chat polish — schedule context, markdown rendering, copy buttons, personal context, artifact cards, skip rating** (2026-05-20) — Chat now knows today's schedule (no more "your class is 7B" when the UI says 9A1). Markdown is rendered, every assistant reply has a copy button, and code-fenced artifacts render as a styled card with their own copy button. Settings modal now has two fields: "About me / How I work" (style guidance, ADHD considerations) and "Ignore rules" (filter signal). Third dismissal option added: "doesn't apply this week" — clears at next weekly announcements upload, doesn't pollute the future ML training set.
+- **Chat to solve** (2026-05-20) — Every Top 3 card opens a right-side drawer. Marimba chats with full task context, drafts email replies that thread back into the original Gmail conversation, plays the canned audio on send.
+- **Personal ignore rules** (2026-05-19) — Gear-icon settings modal; ignore rules injected into both priority and email-triage prompts. Plus pre-rendered "Listo profe" audio that plays on every successful meeting-email send.
 - **Supabase migration** (2026-05-19) — DB now persists across Railway restarts. `DATABASE_URL` env var drives the connection; SQLite fallback kept for tests.
 - **Auto Gmail sync at 7am Costa Rica** (2026-05-19) — APScheduler background job + `sync_state.json`; persistent UI banner surfaces auth failures instead of silently reporting "no emails".
 - **Weekly announcements processing fixes** (2026-05-19) — timeout extended to 90s, null/string fields in Mistral output now handled gracefully.

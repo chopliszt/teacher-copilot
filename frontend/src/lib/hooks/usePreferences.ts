@@ -11,7 +11,11 @@ export function usePreferences() {
 
 export function useSavePreferences() {
   const queryClient = useQueryClient();
-  return useMutation<Preferences, Error, string>({
+  return useMutation<
+    Preferences,
+    Error,
+    { ignore_rules?: string; personal_context?: string }
+  >({
     mutationFn: savePreferences,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['preferences'] });

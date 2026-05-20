@@ -24,6 +24,84 @@ TEACHER_PROFILE = (
 )
 
 
+def format_schedule_block(
+    schedule_data: Dict[str, Any],
+    current_time: datetime,
+    weekly_data: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Return the natural-language block that describes today's schedule,
+    meetings, and disruptions. Shared between the priority prompt and the
+    task-chat prompt so both Mistral calls see the same "what's today"
+    picture and never contradict the UI.
+    """
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    day_name = day_names[current_time.weekday()]
+    date_str = current_time.strftime("%Y-%m-%d")
+    time_str = current_time.strftime("%H:%M")
+    current_schedule_day = get_current_schedule_day()
+
+    homeroom = schedule_data.get("homeroom", {})
+    homeroom_line = (
+        f"  - Homeroom: {homeroom.get('group', '')} at {homeroom.get('time', '')} "
+        f"in {homeroom.get('room', '')}"
+        if homeroom else ""
+    )
+
+    periods_lines = []
+    for day_schedule in schedule_data.get("classes", []):
+        if day_schedule.get("day") == current_schedule_day:
+            for p in day_schedule.get("periods", []):
+                periods_lines.append(
+                    f"  - {p.get('time', '')}: {p.get('subject', '')} — "
+                    f"{p.get('group', '')} in {p.get('room', '')}"
+                )
+            break
+
+    schedule_section = "\n".join(filter(None, [homeroom_line] + periods_lines)) or "  (no classes scheduled)"
+
+    disruptions_section = ""
+    if weekly_data:
+        disruptions = [
+            d for d in weekly_data.get("class_disruptions", [])
+            if d.get("schedule_day") == current_schedule_day
+        ]
+        if disruptions:
+            lines = []
+            for d in disruptions:
+                groups = ", ".join(d.get("groups_affected", []))
+                lines.append(f"  - {groups} ({d.get('time', '')}): {d.get('description', '')}")
+            disruptions_section = (
+                f"\nTODAY'S DISRUPTIONS (schedule day {current_schedule_day}):\n"
+                + "\n".join(lines)
+            )
+
+    meetings_section = ""
+    if weekly_data:
+        meetings = [
+            m for m in weekly_data.get("meetings", [])
+            if m.get("schedule_day") == current_schedule_day
+        ]
+        if meetings:
+            lines = []
+            for m in meetings:
+                mandatory_tag = " [MANDATORY]" if m.get("mandatory") else ""
+                location = f" — {m['location']}" if m.get("location") else ""
+                lines.append(
+                    f"  - {m.get('description', '')} — {m.get('time', '')}"
+                    f"{location}{mandatory_tag}"
+                )
+            meetings_section = "\nTODAY'S MEETINGS:\n" + "\n".join(lines)
+
+    return (
+        f"Today is {day_name}, {date_str} at {time_str}.\n\n"
+        f"TODAY'S SCHEDULE (schedule day {current_schedule_day}):\n"
+        f"{schedule_section}"
+        f"{disruptions_section}"
+        f"{meetings_section}"
+    )
+
+
 def build_context(
     tasks: List[Dict[str, Any]],
     schedule_data: Dict[str, Any],
@@ -43,29 +121,7 @@ def build_context(
     Returns:
         str: Formatted prompt for Mistral
     """
-    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    day_name = day_names[current_time.weekday()]
-    date_str = current_time.strftime("%Y-%m-%d")
-    time_str = current_time.strftime("%H:%M")
-
-    current_schedule_day = get_current_schedule_day()
-
-    homeroom = schedule_data.get("homeroom", {})
-    homeroom_line = (
-        f"  - Homeroom: {homeroom.get('group', '')} at {homeroom.get('time', '')} in {homeroom.get('room', '')}"
-        if homeroom else ""
-    )
-
-    periods_lines = []
-    for day_schedule in schedule_data.get("classes", []):
-        if day_schedule.get("day") == current_schedule_day:
-            for p in day_schedule.get("periods", []):
-                periods_lines.append(
-                    f"  - {p.get('time', '')}: {p.get('subject', '')} — {p.get('group', '')} in {p.get('room', '')}"
-                )
-            break
-
-    schedule_section = "\n".join(filter(None, [homeroom_line] + periods_lines)) or "  (no classes scheduled)"
+    schedule_block = format_schedule_block(schedule_data, current_time, weekly_data)
 
     task_lines = []
     for task in tasks:
@@ -76,35 +132,6 @@ def build_context(
         )
 
     tasks_section = "\n".join(task_lines) or "  (no tasks)"
-
-    # Build disruptions section from weekly_data
-    disruptions_section = ""
-    if weekly_data:
-        disruptions = [
-            d for d in weekly_data.get("class_disruptions", [])
-            if d.get("schedule_day") == current_schedule_day
-        ]
-        if disruptions:
-            lines = []
-            for d in disruptions:
-                groups = ", ".join(d.get("groups_affected", []))
-                lines.append(f"  - {groups} ({d.get('time', '')}): {d.get('description', '')}")
-            disruptions_section = f"\nTODAY'S DISRUPTIONS (schedule day {current_schedule_day}):\n" + "\n".join(lines)
-
-    # Build meetings section from weekly_data
-    meetings_section = ""
-    if weekly_data:
-        meetings = [
-            m for m in weekly_data.get("meetings", [])
-            if m.get("schedule_day") == current_schedule_day
-        ]
-        if meetings:
-            lines = []
-            for m in meetings:
-                mandatory_tag = " [MANDATORY]" if m.get("mandatory") else ""
-                location = f" — {m['location']}" if m.get("location") else ""
-                lines.append(f"  - {m.get('description', '')} — {m.get('time', '')}{location}{mandatory_tag}")
-            meetings_section = "\nTODAY'S MEETINGS:\n" + "\n".join(lines)
 
     ignore_section = ""
     if ignore_rules and ignore_rules.strip():
@@ -117,12 +144,7 @@ def build_context(
     prompt = f"""You are an AI assistant helping a teacher prioritize their day.
 {TEACHER_PROFILE}
 
-Today is {day_name}, {date_str} at {time_str}.
-
-TODAY'S SCHEDULE (schedule day {current_schedule_day}):
-{schedule_section}
-{disruptions_section}
-{meetings_section}
+{schedule_block}
 {ignore_section}
 PENDING TASKS:
 {tasks_section}

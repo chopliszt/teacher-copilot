@@ -21,24 +21,31 @@ function GearIcon() {
 
 export function SettingsButton() {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState('');
+  const [ignoreDraft, setIgnoreDraft] = useState('');
+  const [personalDraft, setPersonalDraft] = useState('');
   const [savedFlash, setSavedFlash] = useState(false);
 
   const { data } = usePreferences();
   const save = useSavePreferences();
 
   useEffect(() => {
-    if (open) setDraft(data?.ignore_rules ?? '');
-  }, [open, data?.ignore_rules]);
+    if (open) {
+      setIgnoreDraft(data?.ignore_rules ?? '');
+      setPersonalDraft(data?.personal_context ?? '');
+    }
+  }, [open, data?.ignore_rules, data?.personal_context]);
 
   function handleSave() {
-    save.mutate(draft, {
-      onSuccess: () => {
-        setSavedFlash(true);
-        setTimeout(() => setSavedFlash(false), 1500);
-        setTimeout(() => setOpen(false), 600);
+    save.mutate(
+      { ignore_rules: ignoreDraft, personal_context: personalDraft },
+      {
+        onSuccess: () => {
+          setSavedFlash(true);
+          setTimeout(() => setSavedFlash(false), 1500);
+          setTimeout(() => setOpen(false), 600);
+        },
       },
-    });
+    );
   }
 
   return (
@@ -53,16 +60,16 @@ export function SettingsButton() {
 
       {open && (
         <div
-          className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-sm flex items-start justify-center pt-20 px-4"
+          className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-sm flex items-start justify-center pt-12 px-4 overflow-y-auto"
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-full max-w-lg bg-stone-900 border border-stone-800 rounded-2xl p-5 space-y-3"
+            className="w-full max-w-lg bg-stone-900 border border-stone-800 rounded-2xl p-5 space-y-5 my-8"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-semibold tracking-widest uppercase text-stone-400">
-                Ignore rules
+                Settings
               </h2>
               <button
                 onClick={() => setOpen(false)}
@@ -71,31 +78,60 @@ export function SettingsButton() {
                 close
               </button>
             </div>
-            <p className="text-stone-500 text-xs leading-relaxed">
-              Free-form rules describing what Marimba should treat as low value
-              (incoming emails and Top 3 candidates). Example:
-              <br />
-              <span className="text-stone-600 italic">
-                "ignore uniform checks unless a parent complains; skip grade
-                11–12 emails with no direct ask; treat 'chairs at end of day'
-                as routine."
-              </span>
-            </p>
-            <textarea
-              autoFocus
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="One rule per line, or one paragraph. Whatever feels natural."
-              rows={8}
-              className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2.5 text-stone-300 text-sm placeholder-stone-700 resize-none focus:outline-none focus:border-stone-600"
-            />
+
+            <section className="space-y-2">
+              <h3 className="text-stone-300 text-xs font-semibold">
+                About me / How I work
+              </h3>
+              <p className="text-stone-500 text-xs leading-relaxed">
+                Persistent context Marimba uses when chatting and drafting
+                content (slides, handouts, prompts, emails). Example:
+                <br />
+                <span className="text-stone-600 italic">
+                  "I prefer minimalistic slides. Handouts should be
+                  ADHD-friendly with short instructions and one task per
+                  section. When you generate prompts for ClaudeAI, keep them
+                  short and direct."
+                </span>
+              </p>
+              <textarea
+                value={personalDraft}
+                onChange={(e) => setPersonalDraft(e.target.value)}
+                placeholder="How do you like to work? What's your style?"
+                rows={6}
+                className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2.5 text-stone-300 text-sm placeholder-stone-700 resize-none focus:outline-none focus:border-stone-600"
+              />
+            </section>
+
+            <section className="space-y-2">
+              <h3 className="text-stone-300 text-xs font-semibold">
+                Ignore rules
+              </h3>
+              <p className="text-stone-500 text-xs leading-relaxed">
+                What Marimba should treat as low value (filters emails and
+                Top 3 candidates). Example:
+                <br />
+                <span className="text-stone-600 italic">
+                  "ignore uniform checks unless a parent complains; skip grade
+                  11 and 12 emails with no direct ask."
+                </span>
+              </p>
+              <textarea
+                value={ignoreDraft}
+                onChange={(e) => setIgnoreDraft(e.target.value)}
+                placeholder="One rule per line, or one paragraph."
+                rows={5}
+                className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2.5 text-stone-300 text-sm placeholder-stone-700 resize-none focus:outline-none focus:border-stone-600"
+              />
+            </section>
+
             <div className="flex items-center justify-between">
               <span className="text-xs text-stone-600">
                 {savedFlash
-                  ? 'Saved ✓'
+                  ? 'Saved'
                   : save.isError
                   ? 'Failed to save — try again'
-                  : ' '}
+                  : ' '}
               </span>
               <button
                 onClick={handleSave}

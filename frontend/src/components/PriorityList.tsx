@@ -57,7 +57,7 @@ export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }
   const remaining = priorities.filter((p) => !doneIds.has(p.id));
   const active = remaining.find((p) => p.id === activeId);
 
-  const dismiss = async (item: PriorityItem, rating: 'relevant' | 'noise') => {
+  const dismiss = async (item: PriorityItem, rating: 'relevant' | 'noise' | 'skip') => {
     setDoneIds((prev) => new Set([...prev, item.id]));
     setActiveId(null);
 
@@ -71,7 +71,9 @@ export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }
       context_json: buildContextJson(item),
     }).catch(() => {/* silent — training data, not critical */});
 
-    // Persist the actual deletion for user_task and email sources
+    // Only "relevant" actually deletes the underlying record. 'noise' and
+    // 'skip' just hide it locally — the backend re-derives suppression from
+    // priority_feedback at the next /api/priorities call.
     try {
       if (rating === 'relevant') {
         if (item.source === 'user_task') {
@@ -81,10 +83,8 @@ export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }
           await dismissEmail(item.id);
           queryClient.invalidateQueries({ queryKey: ['important-emails'] });
         }
-        queryClient.invalidateQueries({ queryKey: ['priorities'] });
       }
-      // 'noise' dismissal: just hide locally — the item will reappear next refresh,
-      // which is intentional until we have enough data to adjust the prompt.
+      queryClient.invalidateQueries({ queryKey: ['priorities'] });
     } catch (err) {
       console.error('[PriorityList] Failed to persist dismissal:', err);
     }
@@ -102,6 +102,7 @@ export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }
             onBack={() => setActiveId(null)}
             onDone={() => dismiss(active, 'relevant')}
             onNotRelevant={() => dismiss(active, 'noise')}
+            onSkip={() => dismiss(active, 'skip')}
             onChat={() => setChatTask(active)}
           />
         </section>

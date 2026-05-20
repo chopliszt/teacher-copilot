@@ -253,6 +253,70 @@ def send_email(to: str, subject: str, body: str) -> bool:
         return False
 
 
+def send_email_with_attachments(
+    *,
+    to: str,
+    subject: str,
+    body: str,
+    attachments: list[Dict[str, Any]] | None = None,
+) -> bool:
+    """
+    Send a freeform email with optional attachments.
+
+    Args:
+        to: comma-separated recipient list ("a@x.com, b@y.com").
+        subject, body: as usual.
+        attachments: list of {"filename": str, "mime_type": str, "data": bytes}.
+            data is raw bytes; we base64-encode internally for the MIME envelope.
+
+    Returns True on success. When attachments is None or empty, this is a
+    multipart/alternative or plain message just like the simple send_email().
+    """
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    service = _get_gmail_service()
+    if not service:
+        return False
+
+    try:
+        if attachments:
+            msg = MIMEMultipart()
+            msg["To"] = to
+            msg["Subject"] = subject
+            msg.attach(MIMEText(body, "plain", "utf-8"))
+            for att in attachments:
+                part = MIMEBase(*(att["mime_type"].split("/", 1) if "/" in att["mime_type"]
+                                  else ("application", "octet-stream")))
+                part.set_payload(att["data"])
+                encoders.encode_base64(part)
+                part.add_header(
+                    "Content-Disposition",
+                    f'attachment; filename="{att["filename"]}"',
+                )
+                msg.attach(part)
+            raw_message = msg.as_bytes()
+        else:
+            # No attachments — same EmailMessage path as send_email().
+            msg = email_lib.message.EmailMessage()
+            msg["To"] = to
+            msg["Subject"] = subject
+            msg.set_content(body)
+            raw_message = msg.as_bytes()
+
+        encoded = base64.urlsafe_b64encode(raw_message).decode()
+        service.users().messages().send(
+            userId="me", body={"raw": encoded}
+        ).execute()
+        return True
+
+    except Exception as error:
+        print(f"[Gmail Connector] Error sending email with attachments: {error}")
+        return False
+
+
 def send_reply(
     *,
     to: str,

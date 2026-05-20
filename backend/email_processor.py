@@ -14,8 +14,15 @@ from typing import Any
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy.orm import Session
 
-from database import ImportantEmailRecord, AbsenceRecord
+from database import ImportantEmailRecord, AbsenceRecord, EmailRecipientRecord
 from prompts.email_triage import triage_batch
+
+
+def _extract_email_address(raw: str) -> str:
+    """Pull 'x@y.com' out of headers like 'Display Name <x@y.com>' or 'x@y.com'."""
+    import re
+    m = re.search(r"<([^>]+)>", raw)
+    return (m.group(1) if m else raw).strip()
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -105,6 +112,19 @@ async def process_batch(
                     rfc822_message_id=email.rfc822_message_id or None,
                 ))
                 emails_saved += 1
+
+                # Seed the autocomplete addressbook with this sender so when the
+                # teacher wants to reply or forward, the address surfaces in
+                # the composer's recipient dropdown.
+                sender_addr = _extract_email_address(email.sender)
+                if sender_addr and "@" in sender_addr:
+                    existing_recipient = db.get(EmailRecipientRecord, sender_addr)
+                    if not existing_recipient:
+                        db.add(EmailRecipientRecord(
+                            email=sender_addr,
+                            use_count=0,                  # inbox-only signal
+                            last_used_at=date_str,
+                        ))
 
         elif category == "absence":
             if not db.get(AbsenceRecord, email.id):

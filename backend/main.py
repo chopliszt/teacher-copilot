@@ -31,7 +31,7 @@ from database import (
 )
 from dotenv import load_dotenv
 from email_processor import EmailBatch, process_batch
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from mistral_client import call_mistral
 from prompts.meeting_summary import summarize_meeting
@@ -517,9 +517,15 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
             + action_tasks
         )
 
-        # Filter out tasks explicitly dismissed as noise (via "not relevant for me").
-        # We match by normalized title so weekly-schedule action items that repeat
-        # daily are suppressed for the rest of the week without clearing the schedule.
+        # Filter out tasks the teacher has explicitly dismissed.
+        #
+        # Two rating signals are honoured here:
+        #   "noise"  → categorically not for this teacher. 14-day window so a
+        #              repeated action item stays suppressed across the week.
+        #   "skip"   → "doesn't apply this week". Stays suppressed until a NEW
+        #              weekly_schedule is uploaded (i.e. a fresh Friday batch).
+        #              Falls back to a 7-day window if no weekly_schedule
+        #              exists yet, so the feature still works on day one.
         from sqlalchemy import select as sql_select
         from datetime import timedelta
 
@@ -533,10 +539,26 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
                 )
             ).scalars().all()
         }
-        if noise_titles:
+
+        if weekly_record and weekly_record.created_at:
+            skip_cutoff = weekly_record.created_at
+        else:
+            skip_cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        skip_titles = {
+            row.task_title.strip().lower()
+            for row in db.execute(
+                sql_select(PriorityFeedbackRecord).where(
+                    PriorityFeedbackRecord.rating == "skip",
+                    PriorityFeedbackRecord.created_at >= skip_cutoff,
+                )
+            ).scalars().all()
+        }
+
+        suppressed = noise_titles | skip_titles
+        if suppressed:
             all_tasks = [
                 t for t in all_tasks
-                if t["title"].strip().lower() not in noise_titles
+                if t["title"].strip().lower() not in suppressed
             ]
 
         current_time = _get_current_time()
@@ -652,23 +674,43 @@ async def post_schedule_day(body: Dict[str, Any]) -> Dict[str, Any]:
 
 @app.get("/api/preferences")
 async def get_preferences() -> Dict[str, Any]:
-    """Returns the teacher's personal preferences — currently just ignore_rules."""
-    from preferences import get_ignore_rules
-    return {"ignore_rules": get_ignore_rules()}
+    """Returns the teacher's personal preferences."""
+    from preferences import get_ignore_rules, get_personal_context
+    return {
+        "ignore_rules": get_ignore_rules(),
+        "personal_context": get_personal_context(),
+    }
 
 
 @app.put("/api/preferences")
 async def put_preferences(body: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Update the teacher's personal preferences.
-    Body: {"ignore_rules": "<free-form text>"}
+    Update the teacher's personal preferences. Either field may be omitted
+    to leave it untouched.
+
+    Body: {"ignore_rules"?: str, "personal_context"?: str}
     """
-    from preferences import set_ignore_rules
-    rules = body.get("ignore_rules", "")
-    if not isinstance(rules, str):
-        raise HTTPException(status_code=400, detail="ignore_rules must be a string")
-    saved = set_ignore_rules(rules)
-    return {"ignore_rules": saved, "updated": True}
+    from preferences import (
+        get_ignore_rules,
+        get_personal_context,
+        set_ignore_rules,
+        set_personal_context,
+    )
+
+    if "ignore_rules" in body:
+        if not isinstance(body["ignore_rules"], str):
+            raise HTTPException(status_code=400, detail="ignore_rules must be a string")
+        set_ignore_rules(body["ignore_rules"])
+    if "personal_context" in body:
+        if not isinstance(body["personal_context"], str):
+            raise HTTPException(status_code=400, detail="personal_context must be a string")
+        set_personal_context(body["personal_context"])
+
+    return {
+        "ignore_rules": get_ignore_rules(),
+        "personal_context": get_personal_context(),
+        "updated": True,
+    }
 
 
 @app.post("/api/emails/sync")
@@ -845,6 +887,7 @@ async def chat_task(
     Returns {"reply": str} — or an error message if Mistral isn't reachable.
     """
     from prompts.task_chat import call_task_chat
+    from context_builder import format_schedule_block
 
     email_record: Optional[ImportantEmailRecord] = None
     if body.source == "email":
@@ -870,7 +913,26 @@ async def chat_task(
     )
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
 
-    reply = await call_task_chat(task_context, messages)
+    # Inject today's schedule + meetings + disruptions so Marimba can answer
+    # "what's my next class?" correctly instead of guessing from the task title.
+    schedule_block = ""
+    schedule_data = _load_schedule_data() or {}
+    weekly_record = db.get(WeeklyScheduleRecord, "current")
+    weekly_data: Optional[Dict[str, Any]] = None
+    if weekly_record:
+        try:
+            weekly_data = json.loads(weekly_record.data)
+        except Exception:
+            weekly_data = None
+    if schedule_data:
+        try:
+            schedule_block = format_schedule_block(
+                schedule_data, _get_current_time(), weekly_data
+            )
+        except Exception as e:
+            print(f"[Chat] Could not build schedule block: {e}")
+
+    reply = await call_task_chat(task_context, messages, schedule_block=schedule_block)
     if reply is None:
         raise HTTPException(
             status_code=503,
@@ -955,7 +1017,91 @@ async def send_email_reply(
     if not sent:
         raise HTTPException(status_code=500, detail="Reply send failed. Check backend logs.")
 
+    # Track recipient(s) so they autocomplete next time
+    try:
+        _upsert_recipients(db, body.to)
+    except Exception as e:
+        print(f"[send_email_reply] recipient tracking failed (non-fatal): {e}")
+
     return {"sent": True}
+
+
+def _upsert_recipients(db: Session, to_field: str) -> None:
+    """
+    Bump the use_count for each address in a comma-separated 'To:' string,
+    or insert new rows for first-time recipients. Powers the autocomplete
+    list in /api/email-recipients.
+    """
+    if not to_field:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    seen: set[str] = set()
+    for raw in to_field.split(","):
+        addr = raw.strip()
+        if not addr or addr in seen:
+            continue
+        seen.add(addr)
+        existing = db.get(EmailRecipientRecord, addr)
+        if existing:
+            existing.use_count += 1
+            existing.last_used_at = now
+        else:
+            db.add(EmailRecipientRecord(email=addr, use_count=1, last_used_at=now))
+    db.commit()
+
+
+# ── Compose freeform email (with optional attachments) ───────────────────────
+
+@app.post("/api/emails/compose")
+async def compose_email(
+    to: str = Form(...),
+    subject: str = Form(...),
+    body: str = Form(...),
+    attachments: List[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Send a NEW (non-threaded) email from the chat composer. Used when
+    Marimba drafts an email mid-conversation that is not a reply — e.g.
+    forwarding an invoice, sending a fresh message to a colleague, etc.
+
+    Body is multipart/form-data so file attachments can ride along.
+    Cap total attachment size at 20 MB to stay well under Gmail's 25 MB limit.
+    """
+    from connectors.gmail import is_configured, send_email_with_attachments
+
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="Gmail is not configured.")
+
+    MAX_TOTAL_BYTES = 20 * 1024 * 1024  # 20 MB
+    total = 0
+    files_payload: list[Dict[str, Any]] = []
+    for f in attachments or []:
+        data = await f.read()
+        total += len(data)
+        if total > MAX_TOTAL_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="Total attachment size exceeds 20 MB.",
+            )
+        files_payload.append({
+            "filename": f.filename or "attachment.bin",
+            "mime_type": f.content_type or "application/octet-stream",
+            "data": data,
+        })
+
+    sent = send_email_with_attachments(
+        to=to, subject=subject, body=body, attachments=files_payload or None,
+    )
+    if not sent:
+        raise HTTPException(status_code=500, detail="Send failed. Check backend logs.")
+
+    try:
+        _upsert_recipients(db, to)
+    except Exception as e:
+        print(f"[compose_email] recipient tracking failed (non-fatal): {e}")
+
+    return {"sent": True, "attachment_count": len(files_payload)}
 
 
 class AddTaskRequest(BaseModel):
@@ -1025,7 +1171,7 @@ class PriorityFeedbackRequest(BaseModel):
     task_title: str
     source: str          # user_task | email | meeting | action_item
     priority_level: str  # high | medium | low
-    rating: str          # relevant | noise
+    rating: str          # relevant | noise | skip
     context_json: str    # JSON-encoded full task dict
 
 
@@ -1036,7 +1182,13 @@ async def record_priority_feedback(
 ) -> Dict[str, Any]:
     """
     Save a teacher's implicit or explicit rating for a Top-3 priority item.
-    'relevant' = marked done; 'noise' = dismissed as not useful.
+
+    Ratings:
+      relevant → marked done; positive training signal.
+      noise    → categorically not useful; strong negative training signal,
+                 suppressed for 14 days at the priorities endpoint.
+      skip     → "doesn't apply this week"; suppressed only until the next
+                 weekly_schedule upload, neutral for future training.
 
     These records are the raw dataset for future few-shot prompt injection
     and potential LoRA fine-tuning of a small ranking model.

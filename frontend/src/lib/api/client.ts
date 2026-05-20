@@ -308,8 +308,33 @@ export async function sendEmailReply(
   return response.data as { sent: boolean };
 }
 
+/**
+ * Send a freeform email with optional attachments.
+ *
+ * Uses multipart/form-data because attachments ride along as file uploads.
+ * The backend caps total attachment size at 20 MB.
+ */
+export async function composeEmail(payload: {
+  to: string;
+  subject: string;
+  body: string;
+  attachments?: File[];
+}): Promise<{ sent: boolean; attachment_count: number }> {
+  const form = new FormData();
+  form.append('to', payload.to);
+  form.append('subject', payload.subject);
+  form.append('body', payload.body);
+  (payload.attachments ?? []).forEach((file) => form.append('attachments', file, file.name));
+  const response = await httpClient.post('/api/emails/compose', form, {
+    timeout: 120_000,
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data as { sent: boolean; attachment_count: number };
+}
+
 export const PreferencesSchema = z.object({
   ignore_rules: z.string(),
+  personal_context: z.string(),
 });
 
 export type Preferences = z.infer<typeof PreferencesSchema>;
@@ -319,9 +344,14 @@ export async function fetchPreferences(): Promise<Preferences> {
   return PreferencesSchema.parse(response.data);
 }
 
-export async function savePreferences(ignore_rules: string): Promise<Preferences> {
-  const response = await httpClient.put('/api/preferences', { ignore_rules });
-  return PreferencesSchema.parse({ ignore_rules: response.data.ignore_rules });
+export async function savePreferences(
+  payload: { ignore_rules?: string; personal_context?: string },
+): Promise<Preferences> {
+  const response = await httpClient.put('/api/preferences', payload);
+  return PreferencesSchema.parse({
+    ignore_rules: response.data.ignore_rules,
+    personal_context: response.data.personal_context,
+  });
 }
 
 export async function recordPriorityFeedback(payload: {
@@ -329,7 +359,7 @@ export async function recordPriorityFeedback(payload: {
   task_title: string;
   source: string;
   priority_level: string;
-  rating: 'relevant' | 'noise';
+  rating: 'relevant' | 'noise' | 'skip';
   context_json: string;
 }): Promise<void> {
   await httpClient.post('/api/priority-feedback', payload);

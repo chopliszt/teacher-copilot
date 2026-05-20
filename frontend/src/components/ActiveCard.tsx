@@ -165,10 +165,11 @@ interface ActiveCardProps {
   onBack: () => void;
   onDone: () => void;
   onNotRelevant: () => void;
+  onSkip: () => void;
   onChat: () => void;
 }
 
-export function ActiveCard({ priority, rank, onBack, onDone, onNotRelevant, onChat }: ActiveCardProps) {
+export function ActiveCard({ priority, rank, onBack, onDone, onNotRelevant, onSkip, onChat }: ActiveCardProps) {
   const styles = PRIORITY_STYLES[priority.priority];
   const dueDate = formatDueDate(priority.due_date);
   const isUrgentDue = dueDate.isOverdue || dueDate.isDueToday;
@@ -264,8 +265,18 @@ export function ActiveCard({ priority, rank, onBack, onDone, onNotRelevant, onCh
           </button>
         )}
 
-        {/* Feedback signal — only visible at the bottom of the expanded card */}
-        <div className="pt-2 flex justify-center">
+        {/* Dismissal signals — two distinct flavours so the ML training signal
+            stays clean. "skip this week" = neutral, expires on next weekly
+            upload. "not relevant for me" = strong negative, suppresses for
+            14 days and becomes a noise example. */}
+        <div className="pt-2 flex justify-center gap-5">
+          <button
+            onClick={onSkip}
+            className="text-stone-600 hover:text-stone-400 text-xs transition-colors"
+          >
+            doesn't apply this week
+          </button>
+          <span className="text-stone-800 text-xs">·</span>
           <button
             onClick={onNotRelevant}
             className="text-stone-700 hover:text-stone-500 text-xs transition-colors"

@@ -9,6 +9,7 @@ import {
   type PriorityItem,
 } from '../lib/api/client';
 import { playCannedAudio } from '../lib/cannedAudio';
+import { ChatMessageBubble } from './ChatMessageBubble';
 
 interface TaskChatDrawerProps {
   priority: PriorityItem | null;
@@ -227,16 +228,7 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
             </p>
           )}
           {messages.map((m, i) => (
-            <div
-              key={i}
-              className={
-                m.role === 'user'
-                  ? 'ml-auto max-w-[85%] bg-amber-500/10 border border-amber-500/20 text-stone-200 text-sm px-3 py-2 rounded-2xl rounded-br-md whitespace-pre-wrap'
-                  : 'mr-auto max-w-[85%] bg-stone-900 border border-stone-800 text-stone-300 text-sm px-3 py-2 rounded-2xl rounded-bl-md whitespace-pre-wrap'
-              }
-            >
-              {m.content}
-            </div>
+            <ChatMessageBubble key={i} role={m.role} content={m.content} />
           ))}
           {chatPending && (
             <div className="mr-auto max-w-[85%] bg-stone-900 border border-stone-800 text-stone-500 text-sm px-3 py-2 rounded-2xl rounded-bl-md">

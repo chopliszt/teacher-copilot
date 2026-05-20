@@ -30,3 +30,20 @@ def set_ignore_rules(rules: str) -> str:
     prefs["ignore_rules"] = rules.strip()
     _PREFS_PATH.write_text(json.dumps(prefs, indent=2))
     return prefs["ignore_rules"]
+
+
+def get_personal_context() -> str:
+    """
+    Free-form text describing how the teacher likes to work — slide style,
+    handout format, ADHD considerations, communication tone, etc. Injected
+    into chat and draft-reply prompts as output-shaping context (NOT into
+    the email triage prompt — classification doesn't care about style).
+    """
+    return str(_read_prefs().get("personal_context", "") or "")
+
+
+def set_personal_context(text: str) -> str:
+    prefs = _read_prefs()
+    prefs["personal_context"] = text.strip()
+    _PREFS_PATH.write_text(json.dumps(prefs, indent=2))
+    return prefs["personal_context"]
