@@ -70,8 +70,10 @@ Document:
 
 # ── Time-overlap filter (Python handles the deterministic math) ────────────────
 
-def _parse_single_time(s: str) -> _time | None:
+def _parse_single_time(s: str | None) -> _time | None:
     """Parse '7:50am', '9:10 AM', '1:30pm', '12:10md' → time object."""
+    if not s:
+        return None
     s = s.strip().lower().replace('\u00a0', '').replace(' ', '')
     s = s.replace('md', 'pm')   # Spanish mediodía = noon
     m = re.match(r'^(\d{1,2}):(\d{2})(am|pm)?$', s)
@@ -87,8 +89,10 @@ def _parse_single_time(s: str) -> _time | None:
     return _time(h, mins) if 0 <= h <= 23 and 0 <= mins <= 59 else None
 
 
-def _parse_time_range(s: str) -> tuple[_time, _time] | None:
+def _parse_time_range(s: str | None) -> tuple[_time, _time] | None:
     """Parse '7:50am–9:10am', '10:10am - 11:30am', '11:00am', etc."""
+    if not s:
+        return None
     parts = re.split(r'\s*[–—\-]\s*', s.strip(), maxsplit=1)
     if len(parts) == 2:
         start = _parse_single_time(parts[0])
@@ -142,7 +146,7 @@ def _filter_disruptions(disruptions: list[dict], schedule: dict) -> list[dict]:
         if any(g.lower() == "all" for g in raw_groups):
             raw_groups = list(teacher_today.keys())
 
-        d_range = _parse_time_range(d.get("time", ""))
+        d_range = _parse_time_range(d.get("time") or "")
 
         affected = []
         for group in raw_groups:
@@ -201,5 +205,6 @@ async def extract_weekly_schedule(document_text: str) -> dict:
 
         return result
 
-    except Exception:
+    except Exception as e:
+        print(f"[WeeklySchedule] Mistral error: {type(e).__name__}: {e}")
         return {}

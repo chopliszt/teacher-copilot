@@ -56,6 +56,51 @@ def _get_gmail_service():
 LABEL_NAME = "marimba-processed"
 
 
+def _extract_body(payload: Dict[str, Any]) -> str:
+    """
+    Walk a Gmail message payload and return the best plain-text body we can find.
+
+    Gmail can deliver simple single-part messages or multipart trees (text/plain
+    + text/html + attachments). We prefer text/plain; if none exists we fall
+    back to text/html stripped to bare text. Returns "" if nothing usable.
+    """
+    import re
+
+    def _decode(data: str) -> str:
+        try:
+            return base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
+    def _walk(node: Dict[str, Any]) -> tuple[str, str]:
+        """Returns (plain_text, html_text) found anywhere in this node."""
+        plain, html = "", ""
+        mime = node.get("mimeType", "")
+        body = node.get("body", {})
+        data = body.get("data")
+        if data:
+            decoded = _decode(data)
+            if mime == "text/plain":
+                plain += decoded
+            elif mime == "text/html":
+                html += decoded
+        for part in node.get("parts", []) or []:
+            p, h = _walk(part)
+            plain += p
+            html += h
+        return plain, html
+
+    plain, html = _walk(payload or {})
+    if plain.strip():
+        return plain.strip()
+    if html.strip():
+        # crude HTML → text fallback (good enough for replying with context)
+        stripped = re.sub(r"<[^>]+>", "", html)
+        stripped = re.sub(r"\s+\n", "\n", stripped)
+        return stripped.strip()
+    return ""
+
+
 def get_or_create_label(service) -> str:
     """Finds the 'marimba-processed' label ID, or creates it if it doesn't exist."""
     results = service.users().labels().list(userId="me").execute()
@@ -122,13 +167,21 @@ def fetch_unread_emails() -> List[IncomingEmail]:
                 (h["value"] for h in headers if h["name"] == "From"), "Unknown Sender"
             )
             recipient = next((h["value"] for h in headers if h["name"] == "To"), "")
+            # RFC822 Message-ID — the canonical id used for In-Reply-To / References
+            # so replies thread inside the original Gmail conversation.
+            rfc822_id = next(
+                (h["value"] for h in headers if h["name"].lower() == "message-id"), ""
+            )
 
             snippet = message_detail.get("snippet", "")
+            body = _extract_body(message_detail.get("payload", {}))
 
             incoming_email_data = {
                 "id": msg_id,
                 "threadId": message_detail.get("threadId", msg_id),
                 "snippet": snippet,
+                "body": body,
+                "rfc822_message_id": rfc822_id,
                 "internalDate": message_detail.get("internalDate", "0"),
                 "Subject": subject,
                 "From": sender,
@@ -198,6 +251,88 @@ def send_email(to: str, subject: str, body: str) -> bool:
     except Exception as error:
         print(f"[Gmail Connector] Error sending email: {error}")
         return False
+
+
+def send_reply(
+    *,
+    to: str,
+    subject: str,
+    body: str,
+    in_reply_to_rfc822_id: str,
+    thread_id: str | None,
+) -> bool:
+    """
+    Send a threaded reply. The message lands inside the same Gmail
+    conversation as the original on both sender's and recipient's sides.
+
+    Threading is achieved by:
+      - Setting In-Reply-To and References to the RFC822 Message-ID of the
+        message being replied to (RFC 2822 standard — the mail client uses
+        this to group messages into threads).
+      - Passing threadId in the Gmail API send payload so Gmail itself
+        keeps it inside the originating thread on our account.
+
+    Subject is normalised to "Re: ..." if not already prefixed.
+    """
+    service = _get_gmail_service()
+    if not service:
+        return False
+
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+
+    try:
+        message = email_lib.message.EmailMessage()
+        message["To"] = to
+        message["Subject"] = subject
+        if in_reply_to_rfc822_id:
+            message["In-Reply-To"] = in_reply_to_rfc822_id
+            message["References"] = in_reply_to_rfc822_id
+        message.set_content(body)
+
+        encoded = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        payload: Dict[str, Any] = {"raw": encoded}
+        if thread_id:
+            payload["threadId"] = thread_id
+
+        service.users().messages().send(userId="me", body=payload).execute()
+        return True
+
+    except Exception as error:
+        print(f"[Gmail Connector] Error sending threaded reply: {error}")
+        return False
+
+
+def fetch_email_detail(message_id: str) -> Dict[str, Any] | None:
+    """
+    Pull the full body + threading headers for a single message we already
+    know about. Used to lazy-backfill emails that were ingested before the
+    body / thread_id / rfc822_message_id columns existed.
+    """
+    service = _get_gmail_service()
+    if not service:
+        return None
+
+    try:
+        message_detail = (
+            service.users()
+            .messages()
+            .get(userId="me", id=message_id, format="full")
+            .execute()
+        )
+        headers = message_detail["payload"].get("headers", [])
+        rfc822_id = next(
+            (h["value"] for h in headers if h["name"].lower() == "message-id"), ""
+        )
+        body = _extract_body(message_detail.get("payload", {}))
+        return {
+            "body": body,
+            "thread_id": message_detail.get("threadId", ""),
+            "rfc822_message_id": rfc822_id,
+        }
+    except HttpError as error:
+        print(f"[Gmail Connector] Could not fetch message {message_id}: {error}")
+        return None
 
 
 def get_tasks() -> List[Dict[str, Any]]:

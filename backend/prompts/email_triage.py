@@ -11,6 +11,8 @@ from typing import Any
 
 from mistralai import Mistral
 
+from preferences import get_ignore_rules
+
 # ── Prompt ────────────────────────────────────────────────────────────────────
 #
 # Edit this block to adjust classification behaviour.
@@ -116,12 +118,22 @@ async def triage_batch(emails: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     prompt = CLASSIFICATION_RULES.format(emails_block=emails_block)
 
+    system_prompt = SYSTEM_PROMPT
+    ignore_rules = get_ignore_rules()
+    if ignore_rules:
+        system_prompt = (
+            system_prompt
+            + "\n\nTeacher's personal ignore rules — anything matching these "
+              "should be classified as `ignore` unless it contains a direct ask:\n"
+            + ignore_rules.strip()
+        )
+
     try:
         client = Mistral(api_key=api_key)
         response = await client.chat.complete_async(
             model="mistral-small-latest",
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": prompt},
             ],
             response_format={"type": "json_object"},

@@ -29,6 +29,7 @@ def build_context(
     schedule_data: Dict[str, Any],
     current_time: datetime,
     weekly_data: Optional[Dict[str, Any]] = None,
+    ignore_rules: Optional[str] = None,
 ) -> str:
     """
     Build a natural-language prompt describing the teacher's context.
@@ -105,6 +106,14 @@ def build_context(
                 lines.append(f"  - {m.get('description', '')} — {m.get('time', '')}{location}{mandatory_tag}")
             meetings_section = "\nTODAY'S MEETINGS:\n" + "\n".join(lines)
 
+    ignore_section = ""
+    if ignore_rules and ignore_rules.strip():
+        ignore_section = (
+            "\nTEACHER'S IGNORE RULES (treat tasks matching any of these as low value "
+            "— do NOT put them in the Top 3 unless nothing else competes):\n"
+            f"{ignore_rules.strip()}\n"
+        )
+
     prompt = f"""You are an AI assistant helping a teacher prioritize their day.
 {TEACHER_PROFILE}
 
@@ -114,7 +123,7 @@ TODAY'S SCHEDULE (schedule day {current_schedule_day}):
 {schedule_section}
 {disruptions_section}
 {meetings_section}
-
+{ignore_section}
 PENDING TASKS:
 {tasks_section}
 
@@ -124,6 +133,7 @@ Select the 3 most important tasks the teacher should focus on today, considering
 - Tasks due today or overdue are most urgent
 - High priority tasks take precedence over low priority ones
 - Shorter tasks are preferable when priority is equal (quick wins)
+- Respect the teacher's ignore rules above when applicable
 
 Respond ONLY with a JSON object in this exact format:
 {{"priorities": [{{"id": "<id1>", "reason": "<why this task is critical today>"}}, {{"id": "<id2>", "reason": "<why>"}}, {{"id": "<id3>", "reason": "<why>"}}]}}

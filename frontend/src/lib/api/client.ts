@@ -118,7 +118,25 @@ export async function fetchImportantEmails(): Promise<ImportantEmail[]> {
 }
 
 export async function syncEmails(): Promise<void> {
-  await httpClient.post('/api/emails/sync', {}, { timeout: 60_000 });
+  const res = await httpClient.post<{ status: string; message?: string }>(
+    '/api/emails/sync',
+    {},
+    { timeout: 60_000 }
+  );
+  if (res.data.status === 'error') {
+    throw new Error(res.data.message ?? 'Gmail sync failed');
+  }
+}
+
+export interface LastSyncState {
+  last_sync_at: string | null;
+  emails_found: number;
+  status: string;
+}
+
+export async function fetchLastSync(): Promise<LastSyncState> {
+  const res = await httpClient.get<LastSyncState>('/api/emails/last-sync');
+  return res.data;
 }
 
 export async function dismissEmail(id: string): Promise<void> {
@@ -132,8 +150,8 @@ export async function dismissAllEmails(): Promise<void> {
 export const ClassDisruptionSchema = z.object({
   description: z.string(),
   day: z.string(),
-  schedule_day: z.number().nullable(),
-  time: z.string(),
+  schedule_day: z.coerce.number().nullable(),
+  time: z.string().nullable().optional(),
   groups_affected: z.array(z.string()),
 });
 
@@ -142,10 +160,10 @@ export const WeeklyScheduleSchema = z.object({
   meetings: z.array(z.object({
     description: z.string(),
     day: z.string(),
-    schedule_day: z.number().nullable(),
-    time: z.string(),
+    schedule_day: z.coerce.number().nullable(),
+    time: z.string().nullable().optional(),
     location: z.string().nullable().optional(),
-    mandatory: z.boolean().optional(),
+    mandatory: z.boolean().nullable().optional(),
   })),
   class_disruptions: z.array(ClassDisruptionSchema),
   action_items: z.array(z.string()),
@@ -219,12 +237,91 @@ export async function deleteUserTask(id: string): Promise<void> {
 }
 
 export async function uploadWeeklySchedule(document_text: string): Promise<WeeklySchedule> {
-  const response = await httpClient.post('/api/weekly-schedule', { document_text });
-  return WeeklyScheduleSchema.parse(response.data);
+  const response = await httpClient.post('/api/weekly-schedule', { document_text }, { timeout: 90_000 });
+  const parsed = WeeklyScheduleSchema.safeParse(response.data);
+  if (!parsed.success) {
+    console.warn('[WeeklySchedule] Zod mismatch:', parsed.error.issues);
+    return response.data as WeeklySchedule;
+  }
+  return parsed.data;
 }
 
 export async function clearWeeklySchedule(): Promise<void> {
   await httpClient.delete('/api/weekly-schedule');
+}
+
+// ── Task chat ───────────────────────────────────────────────────────────────
+
+export const EmailDetailSchema = z.object({
+  id: z.string(),
+  subject: z.string(),
+  sender: z.string(),
+  snippet: z.string(),
+  body: z.string(),
+  date: z.string(),
+  category: z.string(),
+  thread_id: z.string(),
+  rfc822_message_id: z.string(),
+});
+
+export type EmailDetail = z.infer<typeof EmailDetailSchema>;
+
+export async function fetchEmailDetail(id: string): Promise<EmailDetail> {
+  const response = await httpClient.get(`/api/important-emails/${id}`);
+  return EmailDetailSchema.parse(response.data);
+}
+
+export type ChatRole = 'user' | 'assistant';
+
+export interface ChatMessage {
+  role: ChatRole;
+  content: string;
+}
+
+export async function chatWithTask(payload: {
+  task_id: string;
+  source: string;
+  title: string;
+  messages: ChatMessage[];
+}): Promise<{ reply: string }> {
+  const response = await httpClient.post('/api/chat/task', payload, { timeout: 60_000 });
+  return response.data as { reply: string };
+}
+
+export async function draftEmailReply(
+  emailId: string,
+  messages: ChatMessage[],
+): Promise<{ to: string; subject: string; body: string }> {
+  const response = await httpClient.post(
+    `/api/emails/${emailId}/draft-reply`,
+    { messages },
+    { timeout: 60_000 },
+  );
+  return response.data as { to: string; subject: string; body: string };
+}
+
+export async function sendEmailReply(
+  emailId: string,
+  payload: { to: string; subject: string; body: string },
+): Promise<{ sent: boolean }> {
+  const response = await httpClient.post(`/api/emails/${emailId}/reply`, payload);
+  return response.data as { sent: boolean };
+}
+
+export const PreferencesSchema = z.object({
+  ignore_rules: z.string(),
+});
+
+export type Preferences = z.infer<typeof PreferencesSchema>;
+
+export async function fetchPreferences(): Promise<Preferences> {
+  const response = await httpClient.get('/api/preferences');
+  return PreferencesSchema.parse(response.data);
+}
+
+export async function savePreferences(ignore_rules: string): Promise<Preferences> {
+  const response = await httpClient.put('/api/preferences', { ignore_rules });
+  return PreferencesSchema.parse({ ignore_rules: response.data.ignore_rules });
 }
 
 export async function recordPriorityFeedback(payload: {

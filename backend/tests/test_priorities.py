@@ -10,6 +10,9 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 # Import the functions to test
 from main import (
@@ -24,7 +27,42 @@ from mistral_client import call_mistral as _call_mistral_for_priorities  # alias
 
 # Create a test client for the FastAPI app
 from main import app
+from database import Base, get_db, UserTaskRecord
 client = TestClient(app)
+
+
+@pytest.fixture()
+def seeded_db():
+    """In-memory DB with 3 user tasks seeded — satisfies the priorities pool for Mistral path tests."""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    now = datetime.utcnow().isoformat()
+    db = TestingSession()
+    db.add_all([
+        UserTaskRecord(id="test-uuid-1", title="Grade projects", priority="high", due_date="2026-01-15", created_at=now),
+        UserTaskRecord(id="test-uuid-2", title="Parent meeting", priority="high", due_date="2026-01-16", created_at=now),
+        UserTaskRecord(id="test-uuid-3", title="Prepare lesson plan", priority="medium", due_date="2026-01-18", created_at=now),
+    ])
+    db.commit()
+    db.close()
+
+    def override_get_db():
+        session = TestingSession()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    yield
+    app.dependency_overrides.pop(get_db, None)
+    Base.metadata.drop_all(bind=engine)
 
 
 class TestPriorityScoring:
@@ -263,10 +301,10 @@ class TestMistralIntegration:
         ],
     }
 
-    def test_mistral_path_returns_correct_structure(self, monkeypatch):
+    def test_mistral_path_returns_correct_structure(self, monkeypatch, seeded_db):
         """Mistral-driven path: endpoint returns correct schema when Mistral provides 3 items"""
         async def mock_mistral(tasks, schedule, current_time, weekly_data=None):
-            # Return the first 3 real task IDs so they match the actual pool
+            # Return the first 3 real task IDs from the seeded pool
             top3 = tasks[:3]
             return [{"id": t["id"], "reason": f"Reason for {t['id']}"} for t in top3]
 

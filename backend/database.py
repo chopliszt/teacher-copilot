@@ -1,19 +1,29 @@
 """
 Database — SQLAlchemy setup for TeacherPilot.
 
-Uses SQLite for simplicity. The DB file lives in data/ alongside
-the other JSON data files. Swap DATABASE_URL for Postgres when ready.
+Uses Supabase (PostgreSQL) when DATABASE_URL is set in the environment,
+otherwise falls back to local SQLite (used by tests and offline dev).
 """
 
+import os
 from pathlib import Path
 
 from sqlalchemy import Boolean, Column, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-DB_PATH = Path(__file__).parent / "data" / "teacher_pilot.db"
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+_sqlite_url = f"sqlite:///{Path(__file__).parent / 'data' / 'teacher_pilot.db'}"
+DATABASE_URL = os.getenv("DATABASE_URL", _sqlite_url)
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Supabase requires SSL; add it automatically if the caller forgot
+if DATABASE_URL.startswith("postgresql") and "sslmode" not in DATABASE_URL:
+    DATABASE_URL += "?sslmode=require"
+
+if DATABASE_URL.startswith("postgresql"):
+    engine = create_engine(DATABASE_URL)
+else:
+    # check_same_thread is SQLite-only
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -25,6 +35,15 @@ class ImportantEmailRecord(Base):
     """
     Emails that require action from the teacher.
     category: "action_required" | "weekly_schedule"
+
+    body / thread_id / rfc822_message_id power the "chat to solve" feature:
+    the chat needs the full body to draft a meaningful reply, and the two
+    threading fields let us send Re: replies that land inside the original
+    Gmail conversation rather than as disconnected new emails.
+
+    Older rows (ingested before these columns existed) leave them NULL;
+    they are lazy-backfilled the first time the user opens the chat for
+    that email, by hitting Gmail with the stored message id.
     """
 
     __tablename__ = "important_emails"
@@ -35,6 +54,9 @@ class ImportantEmailRecord(Base):
     snippet = Column(Text, nullable=False)
     date = Column(String, nullable=False)  # ISO-8601 UTC string
     category = Column(String, nullable=False, default="action_required")
+    body = Column(Text, nullable=True)
+    thread_id = Column(String, nullable=True)
+    rfc822_message_id = Column(String, nullable=True)
 
 
 class AbsenceRecord(Base):
@@ -178,6 +200,40 @@ class EmailRecipientRecord(Base):
 def init_db() -> None:
     """Create all tables. Safe to call on every startup (no-op if they exist)."""
     Base.metadata.create_all(bind=engine)
+    _ensure_columns()
+
+
+def _ensure_columns() -> None:
+    """
+    Lightweight migration — adds nullable columns that were introduced after
+    the table was first created. SQLAlchemy's create_all does NOT modify
+    existing tables, so without this any new Column on an existing table is
+    silently invisible to the ORM.
+
+    For each (table, column, ddl) tuple below, we issue an ALTER TABLE that
+    is idempotent: ADD COLUMN IF NOT EXISTS on Postgres, and a try/except
+    for SQLite (which lacks IF NOT EXISTS for columns until 3.35+).
+    """
+    from sqlalchemy import inspect, text
+
+    additions = [
+        ("important_emails", "body",              "TEXT"),
+        ("important_emails", "thread_id",         "TEXT"),
+        ("important_emails", "rfc822_message_id", "TEXT"),
+    ]
+
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table, col, ddl in additions:
+            if table not in inspector.get_table_names():
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table)}
+            if col in existing:
+                continue
+            try:
+                conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {ddl}'))
+            except Exception as e:
+                print(f"[DB] Could not add {table}.{col}: {e}")
 
 
 def get_db():

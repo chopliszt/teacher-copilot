@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from context_builder import build_context
+from preferences import get_ignore_rules
 
 
 async def call_mistral(
@@ -40,7 +41,13 @@ async def call_mistral(
         from mistralai import Mistral
 
         client = Mistral(api_key=api_key)
-        prompt = build_context(tasks, schedule_data, current_time, weekly_data=weekly_data)
+        prompt = build_context(
+            tasks,
+            schedule_data,
+            current_time,
+            weekly_data=weekly_data,
+            ignore_rules=get_ignore_rules(),
+        )
 
         response = await client.chat.complete_async(
             model="mistral-large-latest",

@@ -165,9 +165,10 @@ interface ActiveCardProps {
   onBack: () => void;
   onDone: () => void;
   onNotRelevant: () => void;
+  onChat: () => void;
 }
 
-export function ActiveCard({ priority, rank, onBack, onDone, onNotRelevant }: ActiveCardProps) {
+export function ActiveCard({ priority, rank, onBack, onDone, onNotRelevant, onChat }: ActiveCardProps) {
   const styles = PRIORITY_STYLES[priority.priority];
   const dueDate = formatDueDate(priority.due_date);
   const isUrgentDue = dueDate.isOverdue || dueDate.isDueToday;
@@ -243,7 +244,20 @@ export function ActiveCard({ priority, rank, onBack, onDone, onNotRelevant }: Ac
         {/* Action-specific content */}
         <ActionSection briefing={briefing} />
 
-        {/* Primary action button */}
+        {/* Chat-to-solve — primary action for resolving the task inline */}
+        <button
+          onClick={onChat}
+          className="w-full py-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/50 text-amber-300 text-sm font-medium transition-all duration-300 active:scale-[0.99] flex items-center justify-center gap-2"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          {priority.source === 'email'
+            ? 'Chat to solve — draft a reply'
+            : 'Chat to solve this'}
+        </button>
+
+        {/* Secondary action button (briefing-specific, kept for non-generic briefings) */}
         {briefing.actionType !== 'generic' && (
           <button className="w-full py-3 rounded-xl bg-stone-800 hover:bg-stone-700 border border-stone-700 hover:border-stone-600 text-stone-200 text-sm font-medium transition-all">
             {briefing.primaryActionLabel} →

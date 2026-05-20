@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from context_builder import build_context  # noqa: F401 (re-exported for tests)
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from database import (
     AbsenceRecord,
     ClassSessionRecord,
@@ -21,6 +23,7 @@ from database import (
     ImportantEmailRecord,
     MeetingRecord,
     PriorityFeedbackRecord,
+    SessionLocal,
     UserTaskRecord,
     WeeklyScheduleRecord,
     get_db,
@@ -43,11 +46,101 @@ from tts import text_to_speech
 # Load environment variables
 load_dotenv()
 
+# ── Sync state ──────────────────────────────────────────────────────────────
+# Lightweight JSON file that persists the last successful Gmail sync timestamp
+# across restarts, independent of the DB.
+
+_SYNC_STATE_PATH = Path(__file__).parent / "data" / "sync_state.json"
+
+
+def _read_sync_state() -> Dict[str, Any]:
+    try:
+        return json.loads(_SYNC_STATE_PATH.read_text())
+    except Exception:
+        return {}
+
+
+def _write_sync_state(status: str, emails_found: int) -> None:
+    try:
+        _SYNC_STATE_PATH.write_text(
+            json.dumps({
+                "last_sync_at": datetime.now(timezone.utc).isoformat(),
+                "emails_found": emails_found,
+                "status": status,
+            })
+        )
+    except Exception as e:
+        print(f"[SyncState] Could not write sync_state.json: {e}")
+
+
+# ── Core Gmail sync logic (shared by the endpoint and the scheduler) ─────────
+
+async def _run_gmail_sync(db: Session) -> Dict[str, Any]:
+    from connectors.gmail import fetch_unread_emails, is_configured, _get_gmail_service
+
+    if not is_configured():
+        return {
+            "status": "error",
+            "message": "Gmail is not configured. Run auth_gmail.py first.",
+            "emails_processed": 0,
+        }
+
+    # Explicitly test the service so an expired/revoked token surfaces as an
+    # error instead of silently returning "no unread emails".
+    service = _get_gmail_service()
+    if not service:
+        result: Dict[str, Any] = {
+            "status": "error",
+            "message": "Gmail token expired or revoked — run auth_gmail.py to re-authenticate.",
+            "emails_processed": 0,
+        }
+        _write_sync_state("error", 0)
+        return result
+
+    fetched_emails = fetch_unread_emails()
+    if not fetched_emails:
+        result = {"status": "success", "message": "No unread emails", "emails_processed": 0}
+    else:
+        batch = EmailBatch(emails=fetched_emails)
+        result = await process_batch(batch, db)
+
+    _write_sync_state(result.get("status", "success"), result.get("emails_processed", 0))
+    return result
+
+
+async def _scheduled_gmail_sync() -> None:
+    """Runs daily at 7 AM Costa Rica time via APScheduler — no request context."""
+    print("[Scheduler] Running scheduled Gmail sync")
+    db = SessionLocal()
+    try:
+        result = await _run_gmail_sync(db)
+        db.commit()
+        print(f"[Scheduler] Sync complete: {result.get('emails_processed', 0)} emails processed")
+    except Exception as e:
+        print(f"[Scheduler] Gmail sync error: {e}")
+    finally:
+        db.close()
+
+
+# ── Lifespan (startup / shutdown) ────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()  # create tables on startup (no-op if they already exist)
+
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        _scheduled_gmail_sync,
+        CronTrigger(hour=7, minute=0, timezone="America/Costa_Rica"),
+        id="daily_gmail_sync",
+        replace_existing=True,
+    )
+    scheduler.start()
+    print("[Scheduler] Daily Gmail sync scheduled at 07:00 America/Costa_Rica")
+
     yield
+
+    scheduler.shutdown(wait=False)
 
 
 # Create FastAPI app
@@ -424,6 +517,28 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
             + action_tasks
         )
 
+        # Filter out tasks explicitly dismissed as noise (via "not relevant for me").
+        # We match by normalized title so weekly-schedule action items that repeat
+        # daily are suppressed for the rest of the week without clearing the schedule.
+        from sqlalchemy import select as sql_select
+        from datetime import timedelta
+
+        noise_cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+        noise_titles = {
+            row.task_title.strip().lower()
+            for row in db.execute(
+                sql_select(PriorityFeedbackRecord).where(
+                    PriorityFeedbackRecord.rating == "noise",
+                    PriorityFeedbackRecord.created_at >= noise_cutoff,
+                )
+            ).scalars().all()
+        }
+        if noise_titles:
+            all_tasks = [
+                t for t in all_tasks
+                if t["title"].strip().lower() not in noise_titles
+            ]
+
         current_time = _get_current_time()
 
         # Try Mistral-powered prioritization first
@@ -535,41 +650,48 @@ async def post_schedule_day(body: Dict[str, Any]) -> Dict[str, Any]:
     return {"date": date_str, "day": int(day), "updated": True}
 
 
+@app.get("/api/preferences")
+async def get_preferences() -> Dict[str, Any]:
+    """Returns the teacher's personal preferences — currently just ignore_rules."""
+    from preferences import get_ignore_rules
+    return {"ignore_rules": get_ignore_rules()}
+
+
+@app.put("/api/preferences")
+async def put_preferences(body: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Update the teacher's personal preferences.
+    Body: {"ignore_rules": "<free-form text>"}
+    """
+    from preferences import set_ignore_rules
+    rules = body.get("ignore_rules", "")
+    if not isinstance(rules, str):
+        raise HTTPException(status_code=400, detail="ignore_rules must be a string")
+    saved = set_ignore_rules(rules)
+    return {"ignore_rules": saved, "updated": True}
+
+
 @app.post("/api/emails/sync")
 async def sync_emails(db: Session = Depends(get_db)) -> Dict[str, Any]:
-    """
-    Trigger native Gmail connector to fetch unread emails and process them.
-    Uses the native Gmail connector (replaced the old n8n webhook /api/emails).
-    """
-    from connectors.gmail import fetch_unread_emails, is_configured
-
-    if not is_configured():
-        return {
-            "status": "error",
-            "message": "Gmail is not configured. Run auth_gmail.py first.",
-            "emails_processed": 0,
-        }
-
-    # Fetch fresh unread emails via Gmail API directly
-    fetched_emails = fetch_unread_emails()
-    if not fetched_emails:
-        return {
-            "status": "success",
-            "message": "No unread emails",
-            "emails_processed": 0,
-        }
-
-    # Pack into the expected EmailBatch model for the existing triaging system
-    batch = EmailBatch(emails=fetched_emails)
-
-    # Process through Mistral and Database
+    """Manually trigger Gmail sync. Also called on frontend mount."""
     try:
-        return await process_batch(batch, db)
+        return await _run_gmail_sync(db)
     except Exception as e:
         import traceback
-        print(f"[Sync] Error during batch processing: {type(e).__name__}: {e}")
+        print(f"[Sync] Error: {type(e).__name__}: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Email processing failed: {type(e).__name__}: {e}")
+
+
+@app.get("/api/emails/last-sync")
+async def get_last_sync() -> Dict[str, Any]:
+    """Returns timestamp of the last Gmail sync (scheduled or manual)."""
+    state = _read_sync_state()
+    return {
+        "last_sync_at": state.get("last_sync_at"),
+        "emails_found": state.get("emails_found", 0),
+        "status": state.get("status", "unknown"),
+    }
 
 
 @app.get("/api/absences")
@@ -637,6 +759,203 @@ async def get_important_emails(db: Session = Depends(get_db)) -> List[Dict[str, 
         }
         for r in records
     ]
+
+
+@app.get("/api/important-emails/{email_id}")
+async def get_email_detail(
+    email_id: str, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Full record for one email — used by the task chat drawer so we can show
+    the body and draft a contextual reply. Lazy-backfills body/thread_id/
+    rfc822_message_id from Gmail if the row predates those columns.
+    """
+    record = db.get(ImportantEmailRecord, email_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    if not record.body or not record.rfc822_message_id:
+        try:
+            from connectors.gmail import fetch_email_detail
+            detail = fetch_email_detail(email_id)
+            if detail:
+                if detail.get("body") and not record.body:
+                    record.body = detail["body"]
+                if detail.get("thread_id") and not record.thread_id:
+                    record.thread_id = detail["thread_id"]
+                if detail.get("rfc822_message_id") and not record.rfc822_message_id:
+                    record.rfc822_message_id = detail["rfc822_message_id"]
+                db.commit()
+        except Exception as e:
+            print(f"[Chat] Lazy backfill failed for {email_id}: {e}")
+
+    return {
+        "id": record.id,
+        "subject": record.subject,
+        "sender": record.sender,
+        "snippet": record.snippet,
+        "body": record.body or "",
+        "date": record.date,
+        "category": record.category,
+        "thread_id": record.thread_id or "",
+        "rfc822_message_id": record.rfc822_message_id or "",
+    }
+
+
+# ── Task chat ────────────────────────────────────────────────────────────────
+
+class ChatMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class TaskChatRequest(BaseModel):
+    task_id: str
+    source: str  # "email" | "user_task" | "meeting" | "action_item"
+    title: str
+    messages: List[ChatMessage]
+
+
+def _build_task_context(
+    *, source: str, title: str, email: Optional[ImportantEmailRecord]
+) -> str:
+    """Assemble the natural-language task block the chat prompt embeds."""
+    if source == "email" and email is not None:
+        body = email.body or email.snippet or "(no body available)"
+        return (
+            f"Type: incoming email\n"
+            f"From: {email.sender}\n"
+            f"Subject: {email.subject}\n"
+            f"Body:\n{body}"
+        )
+    label = {
+        "user_task":   "manual task added by the teacher",
+        "meeting":     "meeting on today's schedule",
+        "action_item": "action item from the weekly announcements",
+    }.get(source, "task")
+    return f"Type: {label}\nTitle: {title}"
+
+
+@app.post("/api/chat/task")
+async def chat_task(
+    body: TaskChatRequest, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    One conversation turn inside the task drawer.
+    Returns {"reply": str} — or an error message if Mistral isn't reachable.
+    """
+    from prompts.task_chat import call_task_chat
+
+    email_record: Optional[ImportantEmailRecord] = None
+    if body.source == "email":
+        email_record = db.get(ImportantEmailRecord, body.task_id)
+        # Lazy backfill so the chat has the body even for old rows
+        if email_record and (not email_record.body or not email_record.rfc822_message_id):
+            try:
+                from connectors.gmail import fetch_email_detail
+                detail = fetch_email_detail(body.task_id)
+                if detail:
+                    if detail.get("body") and not email_record.body:
+                        email_record.body = detail["body"]
+                    if detail.get("thread_id") and not email_record.thread_id:
+                        email_record.thread_id = detail["thread_id"]
+                    if detail.get("rfc822_message_id") and not email_record.rfc822_message_id:
+                        email_record.rfc822_message_id = detail["rfc822_message_id"]
+                    db.commit()
+            except Exception as e:
+                print(f"[Chat] Lazy backfill failed during chat: {e}")
+
+    task_context = _build_task_context(
+        source=body.source, title=body.title, email=email_record
+    )
+    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+
+    reply = await call_task_chat(task_context, messages)
+    if reply is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Mistral is not reachable right now. Try again in a moment.",
+        )
+    return {"reply": reply}
+
+
+class DraftReplyRequest(BaseModel):
+    messages: List[ChatMessage]
+
+
+@app.post("/api/emails/{email_id}/draft-reply")
+async def draft_email_reply_endpoint(
+    email_id: str,
+    body: DraftReplyRequest,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Draft a contextual reply to one email, informed by the chat so far."""
+    from prompts.task_chat import draft_email_reply
+
+    record = db.get(ImportantEmailRecord, email_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    body_text = record.body or record.snippet or ""
+    draft = await draft_email_reply(
+        original_subject=record.subject,
+        original_sender=record.sender,
+        original_body=body_text,
+        chat_history=[{"role": m.role, "content": m.content} for m in body.messages],
+    )
+    if not draft:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not draft a reply right now. Try again in a moment.",
+        )
+    # Extract a clean "to" address from the sender header (e.g. 'Name <x@y.com>')
+    import re
+    match = re.search(r"<([^>]+)>", record.sender)
+    suggested_to = match.group(1) if match else record.sender
+    return {
+        "to": suggested_to,
+        "subject": draft["subject"],
+        "body": draft["body"],
+    }
+
+
+class SendReplyRequest(BaseModel):
+    to: str
+    subject: str
+    body: str
+
+
+@app.post("/api/emails/{email_id}/reply")
+async def send_email_reply(
+    email_id: str,
+    body: SendReplyRequest,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Send a threaded reply to an action-required email. Uses In-Reply-To +
+    References + Gmail threadId so the reply lands inside the original
+    conversation on both sides.
+    """
+    from connectors.gmail import is_configured, send_reply
+
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="Gmail is not configured.")
+
+    record = db.get(ImportantEmailRecord, email_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    sent = send_reply(
+        to=body.to,
+        subject=body.subject,
+        body=body.body,
+        in_reply_to_rfc822_id=record.rfc822_message_id or "",
+        thread_id=record.thread_id or None,
+    )
+    if not sent:
+        raise HTTPException(status_code=500, detail="Reply send failed. Check backend logs.")
+
+    return {"sent": True}
 
 
 class AddTaskRequest(BaseModel):

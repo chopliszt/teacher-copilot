@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Toaster } from 'sonner';
 import { usePriorities } from './lib/hooks/usePriorities';
 import { useWeeklySchedule } from './lib/hooks/useWeeklySchedule';
 import { useSyncEmails } from './lib/hooks/useImportantEmails';
@@ -11,6 +12,7 @@ import { TodaySchedule } from './components/TodaySchedule';
 import { InboxTray } from './components/InboxTray';
 import { UserTaskSection } from './components/UserTaskSection';
 import { FridayBanner } from './components/FridayBanner';
+import { SettingsButton } from './components/SettingsButton';
 import type { VoiceAction } from './lib/api/client';
 
 function LoadingScreen() {
@@ -114,6 +116,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50">
+      <SettingsButton />
       <main className="max-w-4xl mx-auto px-4 py-10 sm:px-6 lg:px-8">
         <MarimbaGreeting priorityCount={priorities.length} />
         <div id="today-schedule">
@@ -139,6 +142,17 @@ export default function App() {
         onMicClick={toggleListening}
         onDiscard={discardRecording}
         lastResponse={meetingResponse ?? lastResponse}
+      />
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: '#1c1917',
+            border: '1px solid #292524',
+            color: '#d6d3d1',
+            fontSize: '0.75rem',
+          },
+        }}
       />
     </div>
   );

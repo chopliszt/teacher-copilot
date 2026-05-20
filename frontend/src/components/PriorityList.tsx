@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { deleteUserTask, dismissEmail, recordPriorityFeedback, type PriorityItem } from '../lib/api/client';
 import { PriorityCard } from './PriorityCard';
 import { ActiveCard } from './ActiveCard';
+import { TaskChatDrawer } from './TaskChatDrawer';
 
 interface PriorityListProps {
   priorities: PriorityItem[];
@@ -40,6 +41,7 @@ function buildContextJson(item: PriorityItem): string {
 export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }: PriorityListProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
+  const [chatTask, setChatTask] = useState<PriorityItem | null>(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -92,42 +94,65 @@ export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }
   if (active) {
     const rank = remaining.findIndex((p) => p.id === activeId) + 1;
     return (
-      <section aria-label="Active task">
-        <ActiveCard
-          priority={active}
-          rank={rank}
-          onBack={() => setActiveId(null)}
-          onDone={() => dismiss(active, 'relevant')}
-          onNotRelevant={() => dismiss(active, 'noise')}
+      <>
+        <section aria-label="Active task">
+          <ActiveCard
+            priority={active}
+            rank={rank}
+            onBack={() => setActiveId(null)}
+            onDone={() => dismiss(active, 'relevant')}
+            onNotRelevant={() => dismiss(active, 'noise')}
+            onChat={() => setChatTask(active)}
+          />
+        </section>
+        <TaskChatDrawer
+          priority={chatTask}
+          onClose={() => setChatTask(null)}
+          onDone={() => {
+            const t = chatTask;
+            setChatTask(null);
+            if (t) dismiss(t, 'relevant');
+          }}
         />
-      </section>
+      </>
     );
   }
 
   // Grid view — all remaining tasks
   return (
-    <section aria-label="Your top priorities">
-      <div className="flex items-center gap-2 mb-4">
-        <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-        <h2 className="text-stone-500 text-xs font-semibold tracking-widest uppercase">
-          Top {remaining.length} · Right Now
-        </h2>
-      </div>
-
-      {remaining.length === 0 ? (
-        <EmptyState />
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {remaining.map((priority, index) => (
-            <PriorityCard
-              key={priority.id}
-              priority={priority}
-              rank={index + 1}
-              onStart={() => setActiveId(priority.id)}
-            />
-          ))}
+    <>
+      <section aria-label="Your top priorities">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+          <h2 className="text-stone-500 text-xs font-semibold tracking-widest uppercase">
+            Top {remaining.length} · Right Now
+          </h2>
         </div>
-      )}
-    </section>
+
+        {remaining.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {remaining.map((priority, index) => (
+              <PriorityCard
+                key={priority.id}
+                priority={priority}
+                rank={index + 1}
+                onStart={() => setActiveId(priority.id)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+      <TaskChatDrawer
+        priority={chatTask}
+        onClose={() => setChatTask(null)}
+        onDone={() => {
+          const t = chatTask;
+          setChatTask(null);
+          if (t) dismiss(t, 'relevant');
+        }}
+      />
+    </>
   );
 }

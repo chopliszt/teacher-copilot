@@ -6,6 +6,7 @@ import {
   uploadMeetingFile,
   type MeetingDraft,
 } from '../api/client';
+import { playCannedAudio } from '../cannedAudio';
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   // FastAPI HTTPException — has response.data.detail (string)
@@ -249,6 +250,7 @@ export function useMeetingRecorder(): UseMeetingRecorderReturn {
         const result = await sendMeetingEmail(meetingId, { to, subject, body });
         if (result.sent) {
           setState('done');
+          playCannedAudio('email_sent.mp3');
         } else {
           // Stay in composing so the draft is not lost
           setState('composing');

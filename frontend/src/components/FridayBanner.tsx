@@ -132,8 +132,10 @@ export function FridayBanner({ hasWeeklyData, weekLabel }: FridayBannerProps) {
               {upload.isPending ? 'Processing…' : 'Process announcements'}
             </button>
             {upload.isError && (
-              <p className="text-red-400 text-xs">
-                Something went wrong — check that the backend is running.
+              <p className="text-amber-500/70 text-xs">
+                {upload.error instanceof Error
+                  ? upload.error.message
+                  : 'Processing failed — try again.'}
               </p>
             )}
           </div>

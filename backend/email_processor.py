@@ -32,15 +32,17 @@ class EmailPayload(BaseModel):
 class IncomingEmail(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    id:           str
-    threadId:     str
-    snippet:      str
-    payload:      EmailPayload
-    internalDate: str                              # Unix ms as string
-    labels:       list[EmailLabel] = []
-    subject:      str = Field(alias="Subject")
-    sender:       str = Field(alias="From")
-    recipient:    str = Field(alias="To", default="")
+    id:                 str
+    threadId:           str
+    snippet:            str
+    payload:            EmailPayload
+    internalDate:       str                              # Unix ms as string
+    labels:             list[EmailLabel] = []
+    subject:            str = Field(alias="Subject")
+    sender:             str = Field(alias="From")
+    recipient:          str = Field(alias="To", default="")
+    body:               str = ""
+    rfc822_message_id:  str = ""
 
 
 class EmailBatch(BaseModel):
@@ -98,6 +100,9 @@ async def process_batch(
                     snippet=email.snippet,
                     date=date_str,
                     category=category,
+                    body=email.body or None,
+                    thread_id=email.threadId or None,
+                    rfc822_message_id=email.rfc822_message_id or None,
                 ))
                 emails_saved += 1
 
