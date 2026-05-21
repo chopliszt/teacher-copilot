@@ -25,26 +25,33 @@ export function parseEmailArtifact(content: string): ParsedEmailArtifact | null 
   let bodyStart = -1;
   let sawTo = false;
   let sawSubject = false;
+  // Index of the last header line we consumed (To: / Subject:). If Marimba
+  // skips the `Body:` marker and just starts writing the email, we use this
+  // to infer where the body begins.
+  let lastHeaderIndex = -1;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!sawTo && /^\s*to\s*:/i.test(line)) {
       to = line.replace(/^\s*to\s*:\s*/i, '').trim();
       sawTo = true;
+      lastHeaderIndex = i;
       continue;
     }
     if (!sawSubject && /^\s*subject\s*:/i.test(line)) {
       subject = line.replace(/^\s*subject\s*:\s*/i, '').trim();
       sawSubject = true;
+      lastHeaderIndex = i;
       continue;
     }
-    if (/^\s*body\s*:\s*$/i.test(line)) {
+    // Body: alone on a line — accept Spanish "Cuerpo:" too
+    if (/^\s*(body|cuerpo)\s*:\s*$/i.test(line)) {
       bodyStart = i + 1;
       break;
     }
     // Single-line "Body: foo" — rare but handle it
-    if (/^\s*body\s*:/i.test(line)) {
-      const inline = line.replace(/^\s*body\s*:\s*/i, '');
+    if (/^\s*(body|cuerpo)\s*:/i.test(line)) {
+      const inline = line.replace(/^\s*(body|cuerpo)\s*:\s*/i, '');
       const rest = lines.slice(i + 1).join('\n');
       return {
         to,
@@ -55,9 +62,14 @@ export function parseEmailArtifact(content: string): ParsedEmailArtifact | null 
   }
 
   if (bodyStart < 0) {
-    // No "Body:" marker — only treat it as an email artifact if we at least
-    // got To: or Subject:, otherwise return null to fall back to plain code.
+    // No explicit Body: marker. Fall back to "everything after the last
+    // header is the body" — Marimba sometimes writes the email straight
+    // after Subject: without the Body: line.
     if (!sawTo && !sawSubject) return null;
+    if (lastHeaderIndex >= 0) {
+      const inferred = lines.slice(lastHeaderIndex + 1).join('\n').trim();
+      return { to, subject, body: stripEmailMarkdown(inferred) };
+    }
     return { to, subject, body: '' };
   }
 

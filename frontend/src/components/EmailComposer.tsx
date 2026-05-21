@@ -20,6 +20,10 @@ interface EmailComposerProps {
  * Recipient autocomplete is powered by a native <datalist> backed by
  * /api/email-recipients (past sends + inbox senders, ranked by use_count).
  * Attachments are real File objects sent as multipart/form-data.
+ *
+ * After a successful send the whole composer collapses to a single-line
+ * confirmation chip — the editable form gets out of the way and the chat
+ * thread stays scannable.
  */
 export function EmailComposer({ initial }: EmailComposerProps) {
   const [to, setTo] = useState(initial.to);
@@ -75,16 +79,75 @@ export function EmailComposer({ initial }: EmailComposerProps) {
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
   const sizeOver = totalBytes > 20 * 1024 * 1024;
 
+  // ── Sent: collapse to a single confirmation chip ────────────────────────────
+  if (sent) {
+    const recipientPreview = to
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const firstRecipient = recipientPreview[0] ?? '';
+    const extras = recipientPreview.length > 1 ? ` +${recipientPreview.length - 1}` : '';
+    return (
+      <div className="my-3 max-w-full rounded-xl border border-amber-500/30 bg-stone-900 px-4 py-3 flex items-center gap-3">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-amber-400 flex-shrink-0"
+        >
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+        <div className="min-w-0 flex-1">
+          <p className="text-stone-200 text-sm leading-tight">Email sent</p>
+          <p className="text-stone-600 text-xs truncate mt-0.5">
+            To {firstRecipient}{extras}
+            {files.length > 0 && (
+              <span className="text-stone-700">
+                {' · '}
+                {files.length} attachment{files.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Draft: editable composer ────────────────────────────────────────────────
+  const recipientCount = to
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean).length;
+  const recipientLabel =
+    recipientCount === 0
+      ? 'no recipients yet'
+      : `${recipientCount} recipient${recipientCount === 1 ? '' : 's'}`;
+  const attachmentLabel =
+    files.length === 0
+      ? 'no attachments'
+      : `${files.length} attachment${files.length === 1 ? '' : 's'}`;
+
   return (
-    <div className="my-3 rounded-xl border border-amber-500/25 bg-stone-950 overflow-hidden">
-      <div className="px-3 py-1.5 bg-amber-500/5 border-b border-amber-500/15 flex items-center justify-between">
+    <div className="my-3 max-w-full rounded-xl border border-amber-500/25 bg-stone-950 overflow-hidden">
+      {/* Header — title + at-a-glance summary so the teacher can verify */}
+      {/* recipient/attachment counts before scrolling the body. */}
+      <div className="px-4 py-2 bg-amber-500/5 border-b border-amber-500/15 flex items-center gap-2 flex-wrap">
         <span className="text-amber-400/80 text-[0.7rem] font-semibold tracking-widest uppercase">
-          {sent ? 'Email sent' : 'Email draft — review and send'}
+          Email draft — review and send
+        </span>
+        <span className="text-stone-600 text-[0.7rem]">
+          · {recipientLabel} · {attachmentLabel}
         </span>
       </div>
 
-      <div className="p-3 space-y-2">
-        <label className="block">
+      <div className="p-4 space-y-3">
+        {/* To */}
+        <label className="block min-w-0">
           <span className="text-[0.65rem] uppercase tracking-widest text-stone-600 font-semibold">
             To
           </span>
@@ -93,8 +156,7 @@ export function EmailComposer({ initial }: EmailComposerProps) {
             value={to}
             onChange={(e) => setTo(e.target.value)}
             placeholder="recipient@example.com (comma-separate for multiple)"
-            disabled={sent}
-            className="w-full bg-stone-900 border border-stone-800 rounded-lg px-3 py-1.5 text-stone-200 text-xs mt-1 focus:outline-none focus:border-stone-600 disabled:opacity-60"
+            className="block w-full max-w-full bg-stone-900 border border-stone-800 rounded-lg px-3 py-1.5 text-stone-200 text-xs mt-1 focus:outline-none focus:border-stone-600"
           />
           <datalist id={datalistId}>
             {recipients.map((r) => (
@@ -105,19 +167,20 @@ export function EmailComposer({ initial }: EmailComposerProps) {
           </datalist>
         </label>
 
-        <label className="block">
+        {/* Subject */}
+        <label className="block min-w-0">
           <span className="text-[0.65rem] uppercase tracking-widest text-stone-600 font-semibold">
             Subject
           </span>
           <input
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            disabled={sent}
-            className="w-full bg-stone-900 border border-stone-800 rounded-lg px-3 py-1.5 text-stone-200 text-xs mt-1 focus:outline-none focus:border-stone-600 disabled:opacity-60"
+            className="block w-full max-w-full bg-stone-900 border border-stone-800 rounded-lg px-3 py-1.5 text-stone-200 text-xs mt-1 focus:outline-none focus:border-stone-600"
           />
         </label>
 
-        <label className="block">
+        {/* Body — bumped to text-sm since this is the most-read field */}
+        <label className="block min-w-0">
           <span className="text-[0.65rem] uppercase tracking-widest text-stone-600 font-semibold">
             Body
           </span>
@@ -125,25 +188,22 @@ export function EmailComposer({ initial }: EmailComposerProps) {
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={8}
-            disabled={sent}
-            className="w-full bg-stone-900 border border-stone-800 rounded-lg px-3 py-2 text-stone-200 text-xs mt-1 focus:outline-none focus:border-stone-600 resize-y disabled:opacity-60"
+            className="block w-full max-w-full bg-stone-900 border border-stone-800 rounded-lg px-3 py-2 text-stone-200 text-sm mt-1 focus:outline-none focus:border-stone-600 resize-y"
           />
         </label>
 
         {/* Attachments */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
+        <div className="space-y-1.5 min-w-0">
+          <div className="flex items-center justify-between gap-2">
             <span className="text-[0.65rem] uppercase tracking-widest text-stone-600 font-semibold">
               Attachments
             </span>
-            {!sent && (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="text-[0.7rem] text-stone-500 hover:text-stone-300 border border-stone-800 hover:border-stone-700 rounded-lg px-2 py-0.5 transition-colors"
-              >
-                + Add file
-              </button>
-            )}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="text-[0.7rem] text-stone-500 hover:text-stone-300 border border-stone-800 hover:border-stone-700 rounded-lg px-2 py-0.5 transition-colors"
+            >
+              + Add file
+            </button>
           </div>
           <input
             ref={fileInputRef}
@@ -159,21 +219,19 @@ export function EmailComposer({ initial }: EmailComposerProps) {
               {files.map((f, i) => (
                 <li
                   key={`${f.name}-${i}`}
-                  className="flex items-center justify-between gap-2 bg-stone-900 border border-stone-800 rounded-lg px-2 py-1"
+                  className="flex items-center justify-between gap-2 bg-stone-900 border border-stone-800 rounded-lg px-2 py-1 min-w-0"
                 >
-                  <span className="text-stone-300 text-[0.7rem] truncate">
+                  <span className="text-stone-300 text-[0.7rem] truncate min-w-0">
                     {f.name}{' '}
                     <span className="text-stone-600">({formatBytes(f.size)})</span>
                   </span>
-                  {!sent && (
-                    <button
-                      onClick={() => removeFile(i)}
-                      aria-label={`Remove ${f.name}`}
-                      className="text-stone-600 hover:text-amber-400 text-xs"
-                    >
-                      ✕
-                    </button>
-                  )}
+                  <button
+                    onClick={() => removeFile(i)}
+                    aria-label={`Remove ${f.name}`}
+                    className="text-stone-600 hover:text-amber-400 text-xs flex-shrink-0"
+                  >
+                    ✕
+                  </button>
                 </li>
               ))}
               <li className="text-stone-700 text-[0.65rem] pl-1">
@@ -183,25 +241,32 @@ export function EmailComposer({ initial }: EmailComposerProps) {
           )}
         </div>
 
-        {/* Action row */}
-        <div className="flex items-center justify-between pt-1.5">
-          <span className="text-[0.7rem]">
-            {sent ? (
-              <span className="text-emerald-400">Sent</span>
-            ) : sizeOver ? (
+        {/* Send-error panel — mirrors the meeting composer so the user never
+            loses their draft to a backend hiccup. */}
+        {error && (
+          <div className="bg-red-500/5 border border-red-500/20 rounded-xl px-3 py-2.5">
+            <p className="text-red-400 text-xs leading-relaxed">{error}</p>
+            <p className="text-stone-600 text-xs mt-1">
+              Puedes copiar el cuerpo del correo arriba y enviarlo desde Gmail manualmente.
+            </p>
+          </div>
+        )}
+
+        {/* Action row — single source of truth for status + send. */}
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-stone-800">
+          <span className="text-[0.7rem] min-w-0 truncate">
+            {sizeOver ? (
               <span className="text-amber-500/80">Attachments exceed 20 MB.</span>
-            ) : error ? (
-              <span className="text-amber-500/80">{error}</span>
             ) : (
               <span className="text-stone-700">Review carefully before sending.</span>
             )}
           </span>
           <button
             onClick={handleSend}
-            disabled={sending || sent || sizeOver || !to.trim() || !body.trim()}
-            className="text-xs font-semibold text-amber-300 bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 px-3 py-1.5 rounded-lg transition-all active:scale-95 disabled:opacity-40"
+            disabled={sending || sizeOver || !to.trim() || !body.trim()}
+            className="text-xs font-semibold text-amber-300 bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 px-3 py-1.5 rounded-lg transition-all active:scale-95 disabled:opacity-40 flex-shrink-0"
           >
-            {sending ? 'Sending…' : sent ? 'Sent' : 'Send email'}
+            {sending ? 'Sending…' : 'Send email'}
           </button>
         </div>
       </div>

@@ -116,14 +116,21 @@ export function ChatMessageBubble({ role, content, toolCalls }: ChatMessageBubbl
     );
   }
 
+  // Hide the bubble-level "copy reply" button when the message contains an
+  // email composer — the composer is the action surface, not text to copy,
+  // and the duplicate button visually competes with the Send button.
+  const hasEmailComposer = /```email\b/.test(content);
+
   return (
     <div>
       {toolCalls && toolCalls.length > 0 && <ToolCallChips toolCalls={toolCalls} />}
-      <div className="mr-auto max-w-[90%] bg-stone-900 border border-stone-800 text-stone-300 text-sm rounded-2xl rounded-bl-md group">
-        <div className="px-3 pt-2 pb-1 flex items-center justify-end">
-          <CopyButton text={content} label="copy reply" />
-        </div>
-        <div className="px-3 pb-3 prose-marimba">
+      <div className="mr-auto max-w-[90%] min-w-0 bg-stone-900 border border-stone-800 text-stone-300 text-sm rounded-2xl rounded-bl-md group">
+        {!hasEmailComposer && (
+          <div className="px-3 pt-2 pb-1 flex items-center justify-end">
+            <CopyButton text={content} label="copy reply" />
+          </div>
+        )}
+        <div className={`px-3 pb-3 prose-marimba ${hasEmailComposer ? 'pt-3' : ''}`}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={MARKDOWN_COMPONENTS}
