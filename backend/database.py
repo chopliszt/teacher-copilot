@@ -183,6 +183,33 @@ class PriorityFeedbackRecord(Base):
     created_at = Column(String, nullable=False)     # ISO-8601 UTC
 
 
+class LessonPlanRecord(Base):
+    """
+    Saved lesson plans — one row per planning session the teacher commits.
+    Drafts that get discarded leave no DB trace; only "Save & close" creates
+    a row.
+
+    context_snapshot is a frozen JSON blob of what Marimba saw at planning
+    time (last sessions, recent plans, student flags). Useful for replaying
+    why she proposed what she did, and for future ML on plan→outcome.
+
+    feedback stays null at save time. Later, comparing class_sessions.notes
+    to plan_text after the class can passively classify usage.
+    """
+
+    __tablename__ = "lesson_plans"
+
+    id = Column(String, primary_key=True)              # UUID
+    group = Column(String, nullable=False, index=True)
+    date = Column(String, nullable=False)              # YYYY-MM-DD
+    plan_text = Column(Text, nullable=False)
+    context_snapshot = Column(Text, nullable=True)     # JSON-encoded blob
+    chosen_option = Column(Integer, nullable=True)     # 1/2/3 or null = custom
+    feedback = Column(String, nullable=True)           # used_as_is | used_modified | discarded
+    notes = Column(Text, nullable=True)                # post-class reflection
+    created_at = Column(String, nullable=False)        # ISO-8601 UTC
+
+
 class EmailRecipientRecord(Base):
     """
     Tracks email addresses used in meeting email sends.

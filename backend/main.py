@@ -21,6 +21,7 @@ from database import (
     ClassSessionRecord,
     EmailRecipientRecord,
     ImportantEmailRecord,
+    LessonPlanRecord,
     MeetingRecord,
     PriorityFeedbackRecord,
     SessionLocal,
@@ -1404,6 +1405,301 @@ async def get_last_session(
         "what_worked": record.what_worked,
         "created_at": record.created_at,
     }
+
+
+# ── Lesson plan ───────────────────────────────────────────────────────────────
+#
+# The "Plan lesson" drawer on each class card. Marimba opens with 3 distinct
+# proposals (or a Socratic question if there's no history yet), the teacher
+# refines via chat, and the final plan is saved against the group/date.
+
+class LessonPlanChatRequest(BaseModel):
+    messages: List[ChatMessage]
+
+
+class LessonPlanAssignmentRequest(BaseModel):
+    plan_text: str
+
+
+class LessonPlanSaveRequest(BaseModel):
+    date: str                      # YYYY-MM-DD
+    plan_text: str
+    context_snapshot: Optional[Dict[str, Any]] = None
+    chosen_option: Optional[int] = None
+
+
+def _parse_period_duration_min(time_label: str) -> int:
+    """
+    Parse "7:50am - 9:10am" → 80. Best effort; defaults to 80 (the most
+    common period length) if anything looks off.
+    """
+    import re
+    parts = re.split(r"\s*[-–]\s*", time_label.strip())
+    if len(parts) != 2:
+        return 80
+
+    def to_minutes(s: str) -> Optional[int]:
+        s = s.strip().lower().replace(" ", "")
+        m = re.match(r"(\d{1,2}):?(\d{2})?(am|pm)?", s)
+        if not m:
+            return None
+        hh = int(m.group(1))
+        mm = int(m.group(2)) if m.group(2) else 0
+        ampm = m.group(3)
+        if ampm == "pm" and hh < 12:
+            hh += 12
+        elif ampm == "am" and hh == 12:
+            hh = 0
+        return hh * 60 + mm
+
+    # If the first part lacks am/pm, copy from the second part
+    if not re.search(r"(am|pm)", parts[0], re.IGNORECASE):
+        m2 = re.search(r"(am|pm)", parts[1], re.IGNORECASE)
+        if m2:
+            parts[0] = parts[0] + m2.group(0)
+
+    start = to_minutes(parts[0])
+    end = to_minutes(parts[1])
+    if start is None or end is None:
+        return 80
+    diff = end - start
+    return diff if diff > 0 else 80
+
+
+def _find_period_for_group(group: str, schedule_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Find the period dict for `group` on today's schedule day.
+    Falls back to ANY day's period (so the drawer still works when the
+    teacher peeks at tomorrow / yesterday). Returns None if the group
+    isn't in the schedule at all.
+    """
+    today_day = get_current_schedule_day()
+    fallback: Optional[Dict[str, Any]] = None
+    for day_entry in schedule_data.get("classes", []):
+        for period in day_entry.get("periods", []):
+            if period.get("group") == group:
+                if day_entry.get("day") == today_day:
+                    return period
+                if fallback is None:
+                    fallback = period
+    return fallback
+
+
+def _build_lesson_plan_context(
+    group: str, db: Session
+) -> tuple[str, bool, Dict[str, Any]]:
+    """
+    Assemble the lesson-planning context block.
+
+    Returns:
+      context_block:    natural-language string fed to the system prompt
+      has_history:      True if class_sessions OR lesson_plans exist for `group`
+      context_snapshot: dict the frontend echoes back at save time, so the
+                        saved LessonPlanRecord knows what Marimba saw
+    """
+    from sqlalchemy import desc, select
+    from prompts.lesson_plan import format_lesson_context
+
+    # Recent sessions (most recent first, up to 2)
+    sessions = (
+        db.execute(
+            select(ClassSessionRecord)
+            .where(ClassSessionRecord.group == group)
+            .order_by(desc(ClassSessionRecord.date), desc(ClassSessionRecord.schedule_day))
+            .limit(2)
+        )
+        .scalars()
+        .all()
+    )
+
+    # Recent lesson plans (most recent first, up to 3)
+    plans = (
+        db.execute(
+            select(LessonPlanRecord)
+            .where(LessonPlanRecord.group == group)
+            .order_by(desc(LessonPlanRecord.created_at))
+            .limit(3)
+        )
+        .scalars()
+        .all()
+    )
+
+    has_history = bool(sessions) or bool(plans)
+
+    schedule_data = _load_schedule_data() or {}
+    period = _find_period_for_group(group, schedule_data)
+    subject = period.get("subject", "") if period else ""
+    time_label = period.get("time", "") if period else ""
+    duration_min = _parse_period_duration_min(time_label) if time_label else 80
+
+    sessions_dicts = [
+        {
+            "date": s.date,
+            "notes": s.notes,
+            "what_worked": s.what_worked or "",
+        }
+        for s in sessions
+    ]
+    plans_dicts = [
+        {"date": p.date, "plan_text": p.plan_text}
+        for p in plans
+    ]
+
+    context_block = format_lesson_context(
+        group=group,
+        subject=subject,
+        duration_min=duration_min,
+        time_label=time_label,
+        last_sessions=sessions_dicts,
+        recent_plans=plans_dicts,
+    )
+
+    snapshot: Dict[str, Any] = {
+        "group": group,
+        "subject": subject,
+        "time_label": time_label,
+        "duration_min": duration_min,
+        "last_sessions": sessions_dicts,
+        "recent_plans": plans_dicts,
+    }
+    return context_block, has_history, snapshot
+
+
+@app.post("/api/lesson-plan/{group}/chat")
+async def lesson_plan_chat_endpoint(
+    group: str,
+    body: LessonPlanChatRequest,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    One conversation turn for the lesson-planning drawer.
+
+    Empty `messages` = first turn — Marimba opens (3 proposals if history
+    exists, Socratic question if cold start).
+
+    Returns {"reply": str, "context_snapshot": {...}}. The snapshot is
+    handed back to the frontend so it can submit it unchanged at save time.
+    """
+    from prompts.lesson_plan import call_lesson_plan_chat
+
+    context_block, has_history, snapshot = _build_lesson_plan_context(group, db)
+    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+
+    reply = await call_lesson_plan_chat(
+        group=group,
+        messages=messages,
+        context_block=context_block,
+        has_history=has_history,
+    )
+    if reply is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Mistral is not reachable right now. Try again in a moment.",
+        )
+    return {"reply": reply, "context_snapshot": snapshot}
+
+
+@app.post("/api/lesson-plan/{group}/assignment")
+async def lesson_plan_assignment_endpoint(
+    group: str,
+    body: LessonPlanAssignmentRequest,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Given the current lesson plan text, ask Marimba to produce a
+    copyable assignment description (```assignment block) tied to it.
+    """
+    from prompts.lesson_plan import call_assignment_description
+
+    context_block, _, _ = _build_lesson_plan_context(group, db)
+    reply = await call_assignment_description(
+        plan_text=body.plan_text, group=group, context_block=context_block
+    )
+    if reply is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Mistral is not reachable right now. Try again in a moment.",
+        )
+    return {"reply": reply}
+
+
+@app.post("/api/lesson-plan/{group}/save")
+async def save_lesson_plan_endpoint(
+    group: str,
+    body: LessonPlanSaveRequest,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Persist a finalized lesson plan against the given group and date.
+    Returns the saved record id + timestamps.
+    """
+    import uuid
+    record_id = str(uuid.uuid4())
+    now_str = datetime.now(timezone.utc).isoformat()
+
+    snapshot_json: Optional[str] = None
+    if body.context_snapshot is not None:
+        try:
+            snapshot_json = json.dumps(body.context_snapshot, ensure_ascii=False)
+        except Exception:
+            snapshot_json = None
+
+    db.add(
+        LessonPlanRecord(
+            id=record_id,
+            group=group,
+            date=body.date,
+            plan_text=body.plan_text,
+            context_snapshot=snapshot_json,
+            chosen_option=body.chosen_option,
+            feedback=None,
+            notes=None,
+            created_at=now_str,
+        )
+    )
+    db.commit()
+
+    return {
+        "id": record_id,
+        "group": group,
+        "date": body.date,
+        "created_at": now_str,
+    }
+
+
+@app.get("/api/lesson-plan/{group}/recent")
+async def recent_lesson_plans_endpoint(
+    group: str,
+    limit: int = 3,
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """
+    Return the N most recently saved lesson plans for the group.
+    Surfaced as quick references inside the drawer.
+    """
+    from sqlalchemy import desc, select
+
+    records = (
+        db.execute(
+            select(LessonPlanRecord)
+            .where(LessonPlanRecord.group == group)
+            .order_by(desc(LessonPlanRecord.created_at))
+            .limit(max(1, min(limit, 20)))
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "group": r.group,
+            "date": r.date,
+            "plan_text": r.plan_text,
+            "chosen_option": r.chosen_option,
+            "created_at": r.created_at,
+        }
+        for r in records
+    ]
 
 
 def _build_voice_context(

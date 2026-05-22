@@ -1,0 +1,78 @@
+{
+  "6B1": [
+    { "name": "Luis Delgado Chaves", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Matías Ledezma", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Franco Méndez", "notes": "Necesita apoyo en inglés, ciencias, mate y alemán" },
+    { "name": "Gabriel Valverde", "notes": "Necesita apoyo en inglés, ciencias y mate" }
+  ],
+  "6B2": [
+    { "name": "José Pablo Brenes", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Valentina Fallas", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "José Daniel Mata", "notes": "Necesita apoyo en todas las materias" }
+  ],
+  "7A1": [
+    { "name": "José Miguel Aguilar", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Antonio Áviles Morales", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Gael Cabezas Molina", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Gabriel Cedeño", "notes": "Necesita apoyo en todas las materias menos Alemán" },
+    { "name": "Sebastián Gómez", "notes": "Necesita apoyo en todas las materias menos Alemán" },
+    { "name": "María Celeste Quesada", "notes": "Necesita apoyo en Math, Español y Alemán" },
+    { "name": "Luciana Zamora", "notes": "Necesita apoyo en todas las materias" }
+  ],
+  "7B": [
+    { "name": "Tomás Amador", "notes": "Necesita apoyo en todas las materias menos History" },
+    { "name": "Ivana Mendoza", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Rodrigo Miranda", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Lucas Touma", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Lars Volio", "notes": "Necesita apoyo en todas las materias" }
+  ],
+  "8A1": [
+    { "name": "Solsiré Calvo", "notes": "Necesita apoyo en inglés, science y math" },
+    { "name": "Mathías Castro", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Nícolas Fonseca", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Ana Belén Madríz", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Nashley Montaño", "notes": "Necesita apoyo solo en Inglés" },
+    { "name": "Mariángel Morales", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Santiago Platero", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Olivia Rodríguez", "notes": "Necesita apoyo solo en Mate" },
+    { "name": "Sofía Segura", "notes": "Necesita apoyo en todas las materias" }
+  ],
+  "8A2": [
+    { "name": "Ignacio Coronado", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Irene González", "notes": "Necesita apoyo en todas las materias" }
+  ],
+  "9A1": [
+    { "name": "Tamara Abarca Núñez", "notes": "Necesita apoyo en todas las materias menos History" },
+    { "name": "María Celeste Campos", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Iliana Cukier", "notes": "Necesita apoyo en science, math y German" },
+    { "name": "Collin Scott", "notes": "Necesita apoyo en español, math y German" },
+    { "name": "Samantha Oconitrillo", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Tiffany Vindas", "notes": "Necesita apoyo en todas las materias" }
+  ],
+  "9A2": [
+    { "name": "Maurio López", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Saysha Miller", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Andrés Prado", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Valeria Valverde", "notes": "Necesita apoyo en todas las materias" }
+  ],
+  "10A1": [
+    { "name": "Mariana Aguilar", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Daniel Cedeño", "notes": "Necesita apoyo solo en History y Math" },
+    { "name": "Elena García", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Eduardo González", "notes": "Necesita apoyo en History y Español" },
+    { "name": "Mathew Gutiérrez", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Carlos Vargas", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Luciana Vega", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Camilo Zuluaga", "notes": "Necesita apoyo en todas las materias" }
+  ],
+  "10A2": [
+    { "name": "Carissa Barquero", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Santiago Benavides", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Santiago Campos", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Valentina Loof", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Andrés Navarro", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Amanda Noguera", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Diego Segura", "notes": "Necesita apoyo en todas las materias" },
+    { "name": "Lucas Zumbado", "notes": "Necesita apoyo en todas las materias" }
+  ]
+}

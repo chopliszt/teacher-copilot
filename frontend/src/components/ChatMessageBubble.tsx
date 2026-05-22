@@ -249,6 +249,8 @@ const LANGUAGE_LABEL: Record<string, string> = {
   handout: 'Handout',
   draft: 'Draft',
   email: 'Email body',
+  lesson: 'Lesson plan — propuesta',
+  assignment: 'Assignment description',
   artifact: 'Copyable',
 };
 

@@ -11,7 +11,7 @@ from typing import Any
 
 from mistralai import Mistral
 
-from preferences import get_ignore_rules
+from preferences import get_ignore_rules, get_personal_context
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
 #
@@ -71,6 +71,20 @@ Your job is to classify each email into exactly one category:
           ask for this teacher
         - Replies or threads where the teacher is only CC'd with no ask
         - Emails about students in grades 11–12 with no direct ask
+
+OVERRIDE RULE — direct mentions always win:
+  If the email body or snippet contains the teacher's first name (e.g.
+  "Camilo", "@Camilo", "Hola Camilo", "profesor Infante") AND any action
+  verb directed at them (escalar, enviar, confirmar, llenar, revisar,
+  responder, adjuntar, contestar, avisar, coordinar, programar, asistir,
+  ayudar, pasar, mandar, pagar, traer), classify as action_required —
+  regardless of who the sender is. Direct mentions trump every other
+  signal in this prompt.
+
+If the teacher's personal context (provided below) names specific
+collaborators or describes ongoing initiatives they are organizing,
+treat emails from those people OR about those initiatives as
+action_required by default.
 """.strip()
 
 CLASSIFICATION_RULES = """
@@ -111,14 +125,36 @@ async def triage_batch(emails: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not api_key:
         return []
 
-    emails_block = "\n\n".join(
-        f'id: {e["id"]}\nSubject: {e["subject"]}\nSnippet: {e["snippet"]}'
-        for e in emails
-    )
+    # Include a body excerpt (first 800 chars) so direct mentions buried in
+    # thread replies are visible to the triage model — snippets miss those.
+    def _fmt(e: dict[str, Any]) -> str:
+        body = (e.get("body") or "").strip()
+        if body:
+            body_excerpt = body[:800].replace("\n", " ")
+            return (
+                f'id: {e["id"]}\nSubject: {e["subject"]}\n'
+                f'Snippet: {e["snippet"]}\nBody excerpt: {body_excerpt}'
+            )
+        return f'id: {e["id"]}\nSubject: {e["subject"]}\nSnippet: {e["snippet"]}'
+
+    emails_block = "\n\n".join(_fmt(e) for e in emails)
 
     prompt = CLASSIFICATION_RULES.format(emails_block=emails_block)
 
     system_prompt = SYSTEM_PROMPT
+
+    # Inject the teacher's "About me / How I work" block — names their roles,
+    # direct collaborators, and ongoing initiatives. This is the single biggest
+    # lift for triage accuracy.
+    personal_context = get_personal_context()
+    if personal_context:
+        system_prompt = (
+            system_prompt
+            + "\n\nTeacher's personal context — use this to identify priority "
+              "senders, ongoing initiatives, and roles:\n"
+            + personal_context.strip()
+        )
+
     ignore_rules = get_ignore_rules()
     if ignore_rules:
         system_prompt = (

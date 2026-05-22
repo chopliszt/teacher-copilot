@@ -77,9 +77,15 @@ async def process_batch(
     if not emails:
         return {"status": "success", "emails_processed": 0, "emails_saved": 0, "absences_saved": 0}
 
-    # Build the payload for the triage prompt
+    # Build the payload for the triage prompt — include body so direct
+    # mentions buried in thread replies are visible (snippets often miss them).
     triage_input = [
-        {"id": e.id, "subject": e.subject, "snippet": e.snippet}
+        {
+            "id": e.id,
+            "subject": e.subject,
+            "snippet": e.snippet,
+            "body": e.body or "",
+        }
         for e in emails
     ]
     results = await triage_batch(triage_input)

@@ -5,6 +5,7 @@ import { useWeeklySchedule } from '../lib/hooks/useWeeklySchedule';
 import { useLastSession, useLogSession } from '../lib/hooks/useClassSession';
 import { type SchedulePeriod, type Absence, type ClassDisruption } from '../lib/api/client';
 import { MOCK_CLASS_BRIEFINGS, DEFAULT_CLASS_BRIEFING, type ClassBriefing } from '../lib/mockClassBriefings';
+import { LessonPlanDrawer } from './LessonPlanDrawer';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,9 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
   const [notes, setNotes] = useState('');
   const [whatWorked, setWhatWorked] = useState('');
   const [saved, setSaved] = useState(false);
+
+  // Lesson plan drawer state — null = closed, group string = open for that group
+  const [planLessonGroup, setPlanLessonGroup] = useState<string | null>(null);
 
   const handleSave = () => {
     logSession.mutate(
@@ -160,7 +164,10 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
             Student list →
           </button>
         )}
-        <button className="text-xs text-amber-600/70 hover:text-amber-400 border border-amber-500/20 hover:border-amber-500/40 px-3 py-1.5 rounded-lg transition-colors">
+        <button
+          onClick={() => setPlanLessonGroup(period.group)}
+          className="text-xs text-amber-600/70 hover:text-amber-400 border border-amber-500/20 hover:border-amber-500/40 px-3 py-1.5 rounded-lg transition-colors"
+        >
           Plan lesson →
         </button>
       </div>
@@ -207,6 +214,12 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
           </div>
         </div>
       )}
+
+      {/* Lesson plan drawer — opens on "Plan lesson →" click */}
+      <LessonPlanDrawer
+        group={planLessonGroup}
+        onClose={() => setPlanLessonGroup(null)}
+      />
 
     </div>
   );

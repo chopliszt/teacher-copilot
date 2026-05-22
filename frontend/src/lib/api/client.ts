@@ -477,6 +477,89 @@ export async function sendMeetingEmail(
   return MeetingSendResponseSchema.parse(response.data);
 }
 
+// ── Lesson plan ─────────────────────────────────────────────────────────────
+
+export interface LessonContextSnapshot {
+  group: string;
+  subject: string;
+  time_label: string;
+  duration_min: number;
+  last_sessions: Array<{ date: string; notes: string; what_worked: string }>;
+  recent_plans: Array<{ date: string; plan_text: string }>;
+}
+
+export interface LessonChatResponse {
+  reply: string;
+  context_snapshot: LessonContextSnapshot;
+}
+
+export async function lessonPlanChat(
+  group: string,
+  messages: ChatMessage[],
+): Promise<LessonChatResponse> {
+  const response = await httpClient.post(
+    `/api/lesson-plan/${encodeURIComponent(group)}/chat`,
+    { messages: messages.map((m) => ({ role: m.role, content: m.content })) },
+    { timeout: 120_000 },
+  );
+  return response.data as LessonChatResponse;
+}
+
+export async function lessonPlanAssignment(
+  group: string,
+  planText: string,
+): Promise<{ reply: string }> {
+  const response = await httpClient.post(
+    `/api/lesson-plan/${encodeURIComponent(group)}/assignment`,
+    { plan_text: planText },
+    { timeout: 90_000 },
+  );
+  return response.data as { reply: string };
+}
+
+export interface SavedLessonPlan {
+  id: string;
+  group: string;
+  date: string;
+  created_at: string;
+}
+
+export async function saveLessonPlan(
+  group: string,
+  payload: {
+    date: string;
+    plan_text: string;
+    context_snapshot?: LessonContextSnapshot | null;
+    chosen_option?: number | null;
+  },
+): Promise<SavedLessonPlan> {
+  const response = await httpClient.post(
+    `/api/lesson-plan/${encodeURIComponent(group)}/save`,
+    payload,
+  );
+  return response.data as SavedLessonPlan;
+}
+
+export interface RecentLessonPlan {
+  id: string;
+  group: string;
+  date: string;
+  plan_text: string;
+  chosen_option: number | null;
+  created_at: string;
+}
+
+export async function fetchRecentLessonPlans(
+  group: string,
+  limit = 3,
+): Promise<RecentLessonPlan[]> {
+  const response = await httpClient.get(
+    `/api/lesson-plan/${encodeURIComponent(group)}/recent`,
+    { params: { limit } },
+  );
+  return response.data as RecentLessonPlan[];
+}
+
 export async function callVoice(audioBlob: Blob): Promise<VoiceResponse> {
   const ext = audioBlob.type.includes('mp4') ? 'mp4' : 'webm';
   const formData = new FormData();
