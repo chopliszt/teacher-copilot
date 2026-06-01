@@ -3,8 +3,8 @@ import { useSchedule } from '../lib/hooks/useSchedule';
 import { useAbsences } from '../lib/hooks/useAbsences';
 import { useWeeklySchedule } from '../lib/hooks/useWeeklySchedule';
 import { useLastSession, useLogSession } from '../lib/hooks/useClassSession';
+import { useStudentFlags } from '../lib/hooks/useStudentFlags';
 import { type SchedulePeriod, type Absence, type ClassDisruption } from '../lib/api/client';
-import { MOCK_CLASS_BRIEFINGS, DEFAULT_CLASS_BRIEFING, type ClassBriefing } from '../lib/mockClassBriefings';
 import { LessonPlanDrawer } from './LessonPlanDrawer';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -25,15 +25,6 @@ interface BriefingPanelProps {
 }
 
 function BriefingPanel({ period, absentStudents, disruptions, onClose }: BriefingPanelProps) {
-  const raw = MOCK_CLASS_BRIEFINGS[period.group];
-  const briefing: ClassBriefing = raw ?? {
-    ...DEFAULT_CLASS_BRIEFING,
-    group: period.group,
-    subject: period.subject,
-  };
-
-  const totalFlags = absentStudents.length + briefing.flags;
-
   // Session log state
   const { data: lastSession, isLoading: sessionLoading } = useLastSession(period.group);
   const logSession = useLogSession(period.group);
@@ -42,8 +33,17 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
   const [whatWorked, setWhatWorked] = useState('');
   const [saved, setSaved] = useState(false);
 
+  // Student flags for this group — pulled from data/student_flags.json
+  const { data: allFlags } = useStudentFlags();
+  const flagsForGroup = allFlags?.[period.group] ?? [];
+
   // Lesson plan drawer state — null = closed, group string = open for that group
   const [planLessonGroup, setPlanLessonGroup] = useState<string | null>(null);
+  const [planInitialTab, setPlanInitialTab] = useState<'plan' | 'history'>('plan');
+
+  // Expandable flag list — hidden by default so the panel stays tidy when
+  // there are many flagged students (e.g. 7B has 5).
+  const [flagsExpanded, setFlagsExpanded] = useState(false);
 
   const handleSave = () => {
     logSession.mutate(
@@ -66,7 +66,7 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-stone-100 font-semibold text-sm">{briefing.group}</p>
+          <p className="text-stone-100 font-semibold text-sm">{period.group}</p>
           <p className="text-stone-500 text-xs mt-0.5">
             {period.subject} · {period.time}{period.room ? ` · ${period.room}` : ''}
           </p>
@@ -95,20 +95,22 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
         </div>
       )}
 
-      {/* Quick stats */}
+      {/* Quick stats — all real now */}
       <div className="flex gap-3 flex-wrap">
-        <span className="bg-stone-800 border border-stone-700/60 text-stone-400 text-xs px-2.5 py-1 rounded-full">
-          {briefing.studentCount} students
-        </span>
         {absentStudents.length > 0 && (
           <span className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs px-2.5 py-1 rounded-full">
             {absentStudents.length} absent
           </span>
         )}
-        {totalFlags > 0 ? (
-          <span className="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs px-2.5 py-1 rounded-full">
-            {briefing.flags} flag{briefing.flags !== 1 ? 's' : ''}
-          </span>
+        {flagsForGroup.length > 0 ? (
+          <button
+            onClick={() => setFlagsExpanded((v) => !v)}
+            className="bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/15 text-xs px-2.5 py-1 rounded-full transition-colors"
+            title="Tap to see who needs support"
+          >
+            {flagsForGroup.length} need{flagsForGroup.length === 1 ? 's' : ''} support
+            <span className="ml-1 text-amber-400/60">{flagsExpanded ? '▾' : '▸'}</span>
+          </button>
         ) : (
           <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs px-2.5 py-1 rounded-full">
             no flags
@@ -126,49 +128,62 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
         </div>
       )}
 
+      {/* Flagged students — only shown after the chip is tapped */}
+      {flagsExpanded && flagsForGroup.length > 0 && (
+        <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-4 py-3 space-y-1.5">
+          <p className="text-amber-400/70 text-xs font-semibold uppercase tracking-wide mb-2">
+            Students needing support
+          </p>
+          {flagsForGroup.map((f) => (
+            <div key={f.name} className="text-xs">
+              <p className="text-stone-200">{f.name}</p>
+              {f.notes && (
+                <p className="text-stone-500 text-[0.7rem]">{f.notes}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="border-t border-stone-800" />
 
-      {/* Marimba note */}
-      <div className="flex gap-3">
-        <span className="text-base flex-shrink-0 mt-0.5">🦊</span>
-        <p className="text-stone-400 text-sm leading-relaxed">{briefing.marimbaNote}</p>
-      </div>
-
-      {/* Current unit + last session */}
+      {/* Last session — real DB data, or empty state */}
       <div className="space-y-2 text-xs">
-        <div className="flex gap-2">
-          <span className="text-stone-600 w-20 flex-shrink-0">Unit</span>
-          <span className="text-stone-400">{briefing.unit}</span>
-        </div>
-        <div className="flex gap-2">
-          <span className="text-stone-600 w-20 flex-shrink-0">Last session</span>
-          {sessionLoading ? (
-            <span className="text-stone-700 text-xs italic">Loading…</span>
-          ) : lastSession ? (
-            <span className="text-stone-400">{lastSession.notes}</span>
-          ) : (
-            <span className="text-stone-500 italic">{briefing.lastSession}</span>
-          )}
-        </div>
+        <p className="text-stone-600 text-xs font-semibold tracking-widest uppercase">
+          Last session
+        </p>
+        {sessionLoading ? (
+          <p className="text-stone-700 italic">Loading…</p>
+        ) : lastSession ? (
+          <div className="space-y-1">
+            <p className="text-stone-300 text-sm leading-relaxed">{lastSession.notes}</p>
+            {lastSession.what_worked && (
+              <p className="text-stone-500 text-xs italic">
+                Lo que funcionó: {lastSession.what_worked}
+              </p>
+            )}
+            <p className="text-stone-700 text-[0.65rem]">{lastSession.date}</p>
+          </div>
+        ) : (
+          <p className="text-stone-700 italic text-xs">
+            Sin registro todavía. Después de la clase, usá <span className="text-stone-500">+ Log this session</span> de abajo.
+          </p>
+        )}
       </div>
 
-      {/* Source links + plan lesson */}
+      {/* Plan lesson / History */}
       <div className="flex gap-2 pt-1 flex-wrap">
-        {briefing.sources.includes('Toddle') && (
-          <button className="text-xs text-stone-600 hover:text-stone-400 border border-stone-800 hover:border-stone-700 px-3 py-1.5 rounded-lg transition-colors">
-            Toddle →
-          </button>
-        )}
-        {briefing.sources.includes('Google Sheets') && (
-          <button className="text-xs text-stone-600 hover:text-stone-400 border border-stone-800 hover:border-stone-700 px-3 py-1.5 rounded-lg transition-colors">
-            Student list →
-          </button>
-        )}
         <button
-          onClick={() => setPlanLessonGroup(period.group)}
+          onClick={() => { setPlanInitialTab('plan'); setPlanLessonGroup(period.group); }}
           className="text-xs text-amber-600/70 hover:text-amber-400 border border-amber-500/20 hover:border-amber-500/40 px-3 py-1.5 rounded-lg transition-colors"
         >
           Plan lesson →
+        </button>
+        <button
+          onClick={() => { setPlanInitialTab('history'); setPlanLessonGroup(period.group); }}
+          className="text-xs text-stone-500 hover:text-stone-300 border border-stone-800 hover:border-stone-700 px-3 py-1.5 rounded-lg transition-colors"
+        >
+          History →
         </button>
       </div>
 
@@ -215,9 +230,10 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
         </div>
       )}
 
-      {/* Lesson plan drawer — opens on "Plan lesson →" click */}
+      {/* Lesson plan drawer — opens on "Plan lesson →" or "History →" click */}
       <LessonPlanDrawer
         group={planLessonGroup}
+        initialTab={planInitialTab}
         onClose={() => setPlanLessonGroup(null)}
       />
 

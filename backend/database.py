@@ -57,6 +57,11 @@ class ImportantEmailRecord(Base):
     body = Column(Text, nullable=True)
     thread_id = Column(String, nullable=True)
     rfc822_message_id = Column(String, nullable=True)
+    # Raw Cc header from the original email (e.g. "Alice <a@x.com>, Bob
+    # <b@y.com>"). Null for emails ingested before this column existed;
+    # those are lazy-backfilled the first time the chat drawer opens.
+    cc = Column(Text, nullable=True)
+    dismissed_at = Column(String, nullable=True)  # ISO-8601 UTC; set on dismiss, never deleted
 
 
 class AbsenceRecord(Base):
@@ -247,6 +252,8 @@ def _ensure_columns() -> None:
         ("important_emails", "body",              "TEXT"),
         ("important_emails", "thread_id",         "TEXT"),
         ("important_emails", "rfc822_message_id", "TEXT"),
+        ("important_emails", "cc",                "TEXT"),
+        ("important_emails", "dismissed_at",      "TEXT"),
     ]
 
     inspector = inspect(engine)

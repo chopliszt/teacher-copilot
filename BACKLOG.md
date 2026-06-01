@@ -29,6 +29,12 @@ Ranked by urgency and ADHD value. Work top to bottom. Don't start item N+1 until
 
 ## 🟢 When you have data (no rush)
 
+### 3. Plan-to-outcome learning loop
+**What:** After a class, compare `class_sessions.notes` (what actually happened) against the `lesson_plans.plan_text` (what was proposed). Tag each plan with `feedback`: `used_as_is | used_modified | discarded` automatically based on semantic similarity (cheap Mistral Small call). Use as training signal for future proposals.
+**Why:** Closes the loop between planning and reality. Same pattern as priority_feedback but for lesson plans. Lets the next proposal say "the last 3 times you used hands-on activities for 8A1 they worked, want to do that again?".
+**Effort:** ~3 hours
+**Status:** Schema is ready (`feedback` column exists on `lesson_plans`). Just needs a passive background job + the comparison prompt.
+
 ### 4. ML priority personalization
 **Status:** Already collecting data silently. Three signals now:
 - "Mark done" → `rating: relevant` (positive training signal)
@@ -46,6 +52,23 @@ Ranked by urgency and ADHD value. Work top to bottom. Don't start item N+1 until
 **What:** Inside the class briefing panel, an expandable "view past sessions" list for that group.
 **Status:** All data is in DB. Needs `GET /api/class/{group}/sessions` endpoint + small UI component in `TodaySchedule.tsx`.
 **Effort:** ~1 hour
+
+### 6. Toddle API push
+**What:** Once a `lesson` plan + `assignment` description are agreed in the drawer, a single "Push to Toddle" button creates the lesson + assignment records in Toddle directly — no copy-paste.
+**How it works:** Investigate Toddle API (auth + endpoints). Likely needs OAuth or API key. Map lesson_plans + assignment block → Toddle's data model.
+**Why now-ish:** This is the killer integration. Cuts the last manual step out of the planning loop.
+**Effort:** ~4 hours (depending on Toddle's API quality)
+
+### 7. Per-group student rosters + Marimba-generated briefing notes
+**What:** A `student_rosters` table with full name lists per group (not just flagged students). Total student count comes from row count. Replace the removed mock "Marimba's note" with a real Mistral-generated one-liner that reads recent sessions + flags + absences and surfaces "the one thing to remember" for today's class.
+**Why:** The current briefing is honest now (no mock) but a little sparse. A real Marimba note ("Sofía's been quiet 2 sessions in a row — check in early") would bring back the polish without lying.
+**Effort:** ~3 hours
+
+### 8. "Save as Gmail draft" button on inline composer
+**What:** Alongside "Send", add a "Save as draft" button on both the reply preview (TaskChatDrawer) and the freeform composer (EmailComposer). It saves the email to Gmail's Drafts folder instead of sending. The teacher opens the draft from Gmail's web/app UI to finish — letting them use Gmail's native address book for recipient lookup (parents, etc. that aren't in TeacherPilot's autocomplete yet).
+**Why:** Cuts out the "I don't have the parent's email handy" friction without building a contacts system. Gmail's address book is already authoritative.
+**How it works:** New `create_draft()` in `connectors/gmail.py` using Gmail API's `users.messages.drafts.create` (same MIME envelope as send, different endpoint). New `/api/emails/{id}/save-draft` + `/api/emails/save-draft` endpoints mirroring the send ones. Two buttons in the UI instead of one.
+**Effort:** ~30 minutes
 
 ---
 
@@ -66,6 +89,8 @@ Ranked by urgency and ADHD value. Work top to bottom. Don't start item N+1 until
 
 ## ✅ Done
 
+- **Lesson plan drawer + Marimba writes to class_sessions** (2026-05-22) — "Plan lesson" button on each class card opens a chat drawer. Marimba opens with 3 distinct pedagogical proposals (or a Socratic question if there's no group history). Teacher picks one or proposes their own, Marimba elaborates into a ```lesson artifact card. Three footer actions: Save plan (writes to `lesson_plans`), Copy as prompt (Claude/ChatGPT-ready meta-prompt), + Assignment description (Toddle-ready ```assignment block). Marimba also has a new `log_class_session` tool — when the teacher describes what happened last class, she confirms then writes to `class_sessions` directly; a green chip appears above the message showing it actually persisted. Briefing card de-mocked: unit, Marimba note, inert source buttons all removed; flag count + flagged-students list now come from `data/student_flags.json` via the new `/api/student-flags` endpoint.
+- **Triage uses personal_context + flags direct mentions** (2026-05-21) — Email triage now injects the teacher's "About me / How I work" block (roles, key collaborators, ongoing initiatives), adds a direct-mention override rule (any email naming the teacher + an action verb = action_required regardless of sender), and passes the first 800 chars of the body so @mentions buried in thread replies aren't missed.
 - **Marimba can search the inbox + sent mail via tool calling** (2026-05-20) — Chat to solve now exposes three Gmail tools to Marimba (`search_sent_emails`, `search_inbox`, `get_full_email`), scoped to the last 90 days. She decides when to call them based on what the teacher asks. Tool-call loop caps at 3 iterations. The UI shows small "Searched sent emails — 2 matches" chips above her reply so the teacher sees what she actually did.
 - **Email composer in chat + attachments + addressbook seeding** (2026-05-20) — Marimba drafts new emails inline as a structured composer (To with autocomplete, Subject, Body, file attachments up to 20 MB). `email_recipients` is now seeded from inbox senders too.
 - **Chat polish — schedule context, markdown rendering, copy buttons, personal context, artifact cards, skip rating** (2026-05-20) — Chat now knows today's schedule (no more "your class is 7B" when the UI says 9A1). Markdown is rendered, every assistant reply has a copy button, and code-fenced artifacts render as a styled card with their own copy button. Settings modal now has two fields: "About me / How I work" (style guidance, ADHD considerations) and "Ignore rules" (filter signal). Third dismissal option added: "doesn't apply this week" — clears at next weekly announcements upload, doesn't pollute the future ML training set.

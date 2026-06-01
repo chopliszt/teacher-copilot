@@ -48,6 +48,10 @@ class IncomingEmail(BaseModel):
     subject:            str = Field(alias="Subject")
     sender:             str = Field(alias="From")
     recipient:          str = Field(alias="To", default="")
+    # Raw Cc header value, e.g. "Alice <a@x.com>, Bob <b@y.com>". Empty
+    # string when the original email had no CC. Parsed into individual
+    # addresses at API response time so the composer can render chips.
+    cc:                 str = Field(alias="Cc", default="")
     body:               str = ""
     rfc822_message_id:  str = ""
 
@@ -95,6 +99,7 @@ async def process_batch(
 
     emails_saved  = 0
     absences_saved = 0
+    seeded_recipients: set[str] = set()  # deduplicate within this batch
 
     for email in emails:
         result   = result_map.get(email.id, {})
@@ -116,6 +121,7 @@ async def process_batch(
                     body=email.body or None,
                     thread_id=email.threadId or None,
                     rfc822_message_id=email.rfc822_message_id or None,
+                    cc=email.cc or None,
                 ))
                 emails_saved += 1
 
@@ -123,7 +129,8 @@ async def process_batch(
                 # teacher wants to reply or forward, the address surfaces in
                 # the composer's recipient dropdown.
                 sender_addr = _extract_email_address(email.sender)
-                if sender_addr and "@" in sender_addr:
+                if sender_addr and "@" in sender_addr and sender_addr not in seeded_recipients:
+                    seeded_recipients.add(sender_addr)
                     existing_recipient = db.get(EmailRecipientRecord, sender_addr)
                     if not existing_recipient:
                         db.add(EmailRecipientRecord(

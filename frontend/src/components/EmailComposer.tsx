@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import {
   composeEmail,
   fetchEmailRecipients,
+  saveEmailComposeAsDraft,
   type EmailRecipient,
 } from '../lib/api/client';
 import { playCannedAudio } from '../lib/cannedAudio';
@@ -29,13 +30,21 @@ export function EmailComposer({ initial }: EmailComposerProps) {
   const [to, setTo] = useState(initial.to);
   const [subject, setSubject] = useState(initial.subject);
   const [body, setBody] = useState(initial.body);
+  const [cc, setCc] = useState('');
+  // CC row stays hidden until the teacher explicitly adds one — avoids
+  // visual noise on the common no-CC case while keeping the option a
+  // single click away.
+  const [ccVisible, setCcVisible] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [savedAsDraft, setSavedAsDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recipients, setRecipients] = useState<EmailRecipient[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const datalistId = useId();
+  const ccDatalistId = useId();
 
   useEffect(() => {
     fetchEmailRecipients().then(setRecipients).catch(() => {});
@@ -57,6 +66,25 @@ export function EmailComposer({ initial }: EmailComposerProps) {
     setFiles(files.filter((_, i) => i !== idx));
   }
 
+  async function handleSaveDraft() {
+    if (savingDraft || savedAsDraft) return;
+    if (!body.trim()) {
+      setError('Body is required to save a draft.');
+      return;
+    }
+    setSavingDraft(true);
+    setError(null);
+    try {
+      const toClean = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim()) ? to.trim() : undefined;
+      await saveEmailComposeAsDraft({ to: toClean, subject, body, cc: cc.trim() || undefined });
+      setSavedAsDraft(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Draft save failed. Check the backend logs.');
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
   async function handleSend() {
     if (sending || sent) return;
     if (!to.trim() || !body.trim()) {
@@ -66,7 +94,7 @@ export function EmailComposer({ initial }: EmailComposerProps) {
     setSending(true);
     setError(null);
     try {
-      await composeEmail({ to, subject, body, attachments: files });
+      await composeEmail({ to, subject, body, cc: cc.trim() || undefined, attachments: files });
       setSent(true);
       playCannedAudio('email_sent.mp3');
     } catch (err) {
@@ -79,8 +107,8 @@ export function EmailComposer({ initial }: EmailComposerProps) {
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
   const sizeOver = totalBytes > 20 * 1024 * 1024;
 
-  // ── Sent: collapse to a single confirmation chip ────────────────────────────
-  if (sent) {
+  // ── Sent / Draft saved: collapse to a single confirmation chip ─────────────
+  if (sent || savedAsDraft) {
     const recipientPreview = to
       .split(',')
       .map((s) => s.trim())
@@ -103,9 +131,11 @@ export function EmailComposer({ initial }: EmailComposerProps) {
           <path d="M20 6 9 17l-5-5" />
         </svg>
         <div className="min-w-0 flex-1">
-          <p className="text-stone-200 text-sm leading-tight">Email sent</p>
+          <p className="text-stone-200 text-sm leading-tight">
+            {savedAsDraft ? 'Draft saved to Gmail' : 'Email sent'}
+          </p>
           <p className="text-stone-600 text-xs truncate mt-0.5">
-            To {firstRecipient}{extras}
+            {firstRecipient ? `To ${firstRecipient}${extras}` : 'No recipient set'}
             {files.length > 0 && (
               <span className="text-stone-700">
                 {' · '}
@@ -148,8 +178,16 @@ export function EmailComposer({ initial }: EmailComposerProps) {
       <div className="p-4 space-y-3">
         {/* To */}
         <label className="block min-w-0">
-          <span className="text-[0.65rem] uppercase tracking-widest text-stone-600 font-semibold">
-            To
+          <span className="text-[0.65rem] uppercase tracking-widest text-stone-600 font-semibold flex items-center justify-between">
+            <span>To</span>
+            {!ccVisible && (
+              <button
+                onClick={() => setCcVisible(true)}
+                className="text-stone-600 hover:text-stone-400 text-[0.65rem] normal-case tracking-normal font-normal"
+              >
+                + Cc
+              </button>
+            )}
           </span>
           <input
             list={datalistId}
@@ -166,6 +204,40 @@ export function EmailComposer({ initial }: EmailComposerProps) {
             ))}
           </datalist>
         </label>
+
+        {/* Cc — hidden by default; appears on demand to keep the form quiet
+            for the common no-CC case. Once visible, it stays — clearing the
+            field collapses it back via the × control. */}
+        {ccVisible && (
+          <label className="block min-w-0">
+            <span className="text-[0.65rem] uppercase tracking-widest text-stone-600 font-semibold flex items-center justify-between">
+              <span>Cc</span>
+              <button
+                onClick={() => {
+                  setCc('');
+                  setCcVisible(false);
+                }}
+                className="text-stone-600 hover:text-amber-400 text-[0.65rem] normal-case tracking-normal font-normal"
+              >
+                remove
+              </button>
+            </span>
+            <input
+              list={ccDatalistId}
+              value={cc}
+              onChange={(e) => setCc(e.target.value)}
+              placeholder="cc@example.com (comma-separate for multiple)"
+              className="block w-full max-w-full bg-stone-900 border border-stone-800 rounded-lg px-3 py-1.5 text-stone-200 text-xs mt-1 focus:outline-none focus:border-stone-600"
+            />
+            <datalist id={ccDatalistId}>
+              {recipients.map((r) => (
+                <option key={r.email} value={r.email}>
+                  {r.label ?? ''}
+                </option>
+              ))}
+            </datalist>
+          </label>
+        )}
 
         {/* Subject */}
         <label className="block min-w-0">
@@ -261,13 +333,22 @@ export function EmailComposer({ initial }: EmailComposerProps) {
               <span className="text-stone-700">Review carefully before sending.</span>
             )}
           </span>
-          <button
-            onClick={handleSend}
-            disabled={sending || sizeOver || !to.trim() || !body.trim()}
-            className="text-xs font-semibold text-amber-300 bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 px-3 py-1.5 rounded-lg transition-all active:scale-95 disabled:opacity-40 flex-shrink-0"
-          >
-            {sending ? 'Sending…' : 'Send email'}
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleSaveDraft}
+              disabled={savingDraft || sending || !body.trim()}
+              className="text-xs text-stone-400 border border-stone-700 hover:border-stone-600 hover:text-stone-200 px-3 py-1.5 rounded-lg transition-all active:scale-95 disabled:opacity-40"
+            >
+              {savingDraft ? 'Saving…' : 'Save as draft'}
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={sending || sizeOver || !to.trim() || !body.trim()}
+              className="text-xs font-semibold text-amber-300 bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 px-3 py-1.5 rounded-lg transition-all active:scale-95 disabled:opacity-40"
+            >
+              {sending ? 'Sending…' : 'Send email'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

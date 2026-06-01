@@ -209,6 +209,11 @@ export async function fetchLastSession(group: string): Promise<ClassSession | nu
   return ClassSessionSchema.parse(response.data);
 }
 
+export async function fetchGroupSessions(group: string): Promise<ClassSession[]> {
+  const response = await httpClient.get(`/api/class/${group}/sessions`);
+  return z.array(ClassSessionSchema).parse(response.data);
+}
+
 export const UserTaskSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -263,6 +268,10 @@ export const EmailDetailSchema = z.object({
   category: z.string(),
   thread_id: z.string(),
   rfc822_message_id: z.string(),
+  // Clean email addresses that were on the original Cc line. Empty array
+  // when the email had no CC, or when it predates the cc column and the
+  // lazy backfill hasn't run yet (will populate on first chat open).
+  cc: z.array(z.string()).default([]),
 });
 
 export type EmailDetail = z.infer<typeof EmailDetailSchema>;
@@ -317,27 +326,64 @@ export async function chatWithTask(payload: {
   };
 }
 
+export interface DraftReplyResult {
+  to: string;
+  subject: string;
+  body: string;
+  // Addresses that were on the original Cc line — the composer surfaces
+  // these as opt-in chips. Empty when the original had no CC.
+  original_cc: string[];
+}
+
 export async function draftEmailReply(
   emailId: string,
   messages: ChatMessage[],
-): Promise<{ to: string; subject: string; body: string }> {
+): Promise<DraftReplyResult> {
   const response = await httpClient.post(
     `/api/emails/${emailId}/draft-reply`,
     { messages },
     { timeout: 60_000 },
   );
-  const data = response.data as { to: string; subject: string; body: string };
+  const data = response.data as {
+    to: string;
+    subject: string;
+    body: string;
+    original_cc?: string[];
+  };
   // Mistral occasionally leaks markdown into the body — strip it so the draft
   // is plain text by the time it hits the editable preview.
-  return { ...data, body: stripEmailMarkdown(data.body ?? '') };
+  return {
+    to: data.to,
+    subject: data.subject,
+    body: stripEmailMarkdown(data.body ?? ''),
+    original_cc: data.original_cc ?? [],
+  };
 }
 
 export async function sendEmailReply(
   emailId: string,
-  payload: { to: string; subject: string; body: string },
+  payload: { to: string; subject: string; body: string; cc?: string },
 ): Promise<{ sent: boolean }> {
   const response = await httpClient.post(`/api/emails/${emailId}/reply`, payload);
   return response.data as { sent: boolean };
+}
+
+export async function saveEmailReplyAsDraft(
+  emailId: string,
+  payload: { to: string; subject: string; body: string; cc?: string },
+): Promise<{ saved: boolean }> {
+  const response = await httpClient.post(`/api/emails/${emailId}/save-draft`, payload);
+  return response.data as { saved: boolean };
+}
+
+export async function saveEmailComposeAsDraft(payload: {
+  to?: string;
+  subject: string;
+  body: string;
+  cc?: string;
+}): Promise<{ saved: boolean }> {
+  const response = await httpClient.post('/api/emails/save-draft', payload);
+  return response.data as { saved: boolean };
 }
 
 /**
@@ -350,12 +396,16 @@ export async function composeEmail(payload: {
   to: string;
   subject: string;
   body: string;
+  cc?: string;
   attachments?: File[];
 }): Promise<{ sent: boolean; attachment_count: number }> {
   const form = new FormData();
   form.append('to', payload.to);
   form.append('subject', payload.subject);
   form.append('body', payload.body);
+  if (payload.cc && payload.cc.trim()) {
+    form.append('cc', payload.cc.trim());
+  }
   (payload.attachments ?? []).forEach((file) => form.append('attachments', file, file.name));
   const response = await httpClient.post('/api/emails/compose', form, {
     timeout: 120_000,
@@ -477,6 +527,20 @@ export async function sendMeetingEmail(
   return MeetingSendResponseSchema.parse(response.data);
 }
 
+// ── Student flags ──────────────────────────────────────────────────────────
+
+export interface StudentFlag {
+  name: string;
+  notes: string;
+}
+
+export type StudentFlagsByGroup = Record<string, StudentFlag[]>;
+
+export async function fetchStudentFlags(): Promise<StudentFlagsByGroup> {
+  const response = await httpClient.get('/api/student-flags');
+  return (response.data as StudentFlagsByGroup) ?? {};
+}
+
 // ── Lesson plan ─────────────────────────────────────────────────────────────
 
 export interface LessonContextSnapshot {
@@ -488,9 +552,19 @@ export interface LessonContextSnapshot {
   recent_plans: Array<{ date: string; plan_text: string }>;
 }
 
+export interface LessonToolCallSummary {
+  name: string;
+  args: Record<string, unknown>;
+  saved?: boolean;
+  group?: string;
+  date?: string;
+  error?: string;
+}
+
 export interface LessonChatResponse {
   reply: string;
   context_snapshot: LessonContextSnapshot;
+  tool_calls?: LessonToolCallSummary[];
 }
 
 export async function lessonPlanChat(

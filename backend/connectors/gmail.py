@@ -167,6 +167,13 @@ def fetch_unread_emails() -> List[IncomingEmail]:
                 (h["value"] for h in headers if h["name"] == "From"), "Unknown Sender"
             )
             recipient = next((h["value"] for h in headers if h["name"] == "To"), "")
+            # Cc is optional — most emails don't have it. We store it as the
+            # raw header (e.g. "Alice <a@x.com>, Bob <b@y.com>") and parse
+            # into clean addresses at API response time, matching how From/To
+            # are handled. RFC permits multiple Cc headers; join them.
+            cc_raw = ", ".join(
+                h["value"] for h in headers if h["name"].lower() == "cc"
+            )
             # RFC822 Message-ID — the canonical id used for In-Reply-To / References
             # so replies thread inside the original Gmail conversation.
             rfc822_id = next(
@@ -186,6 +193,7 @@ def fetch_unread_emails() -> List[IncomingEmail]:
                 "Subject": subject,
                 "From": sender,
                 "To": recipient,
+                "Cc": cc_raw,
                 "payload": {
                     "mimeType": message_detail["payload"].get("mimeType", "text/plain")
                 },
@@ -220,7 +228,7 @@ def fetch_unread_emails() -> List[IncomingEmail]:
         return []
 
 
-def send_email(to: str, subject: str, body: str) -> bool:
+def send_email(to: str, subject: str, body: str, cc: str | None = None) -> bool:
     """
     Send an email from the authenticated Gmail account.
 
@@ -228,6 +236,7 @@ def send_email(to: str, subject: str, body: str) -> bool:
         to: Recipient email address
         subject: Email subject line
         body: Plain-text email body
+        cc: Optional comma-separated CC addresses
 
     Returns:
         True if sent successfully, False otherwise
@@ -239,6 +248,8 @@ def send_email(to: str, subject: str, body: str) -> bool:
     try:
         message = email_lib.message.EmailMessage()
         message["To"] = to
+        if cc:
+            message["Cc"] = cc
         message["Subject"] = subject
         message.set_content(body)
 
@@ -258,6 +269,7 @@ def send_email_with_attachments(
     to: str,
     subject: str,
     body: str,
+    cc: str | None = None,
     attachments: list[Dict[str, Any]] | None = None,
 ) -> bool:
     """
@@ -266,6 +278,7 @@ def send_email_with_attachments(
     Args:
         to: comma-separated recipient list ("a@x.com, b@y.com").
         subject, body: as usual.
+        cc: optional comma-separated CC list.
         attachments: list of {"filename": str, "mime_type": str, "data": bytes}.
             data is raw bytes; we base64-encode internally for the MIME envelope.
 
@@ -285,6 +298,8 @@ def send_email_with_attachments(
         if attachments:
             msg = MIMEMultipart()
             msg["To"] = to
+            if cc:
+                msg["Cc"] = cc
             msg["Subject"] = subject
             msg.attach(MIMEText(body, "plain", "utf-8"))
             for att in attachments:
@@ -302,6 +317,8 @@ def send_email_with_attachments(
             # No attachments — same EmailMessage path as send_email().
             msg = email_lib.message.EmailMessage()
             msg["To"] = to
+            if cc:
+                msg["Cc"] = cc
             msg["Subject"] = subject
             msg.set_content(body)
             raw_message = msg.as_bytes()
@@ -317,6 +334,67 @@ def send_email_with_attachments(
         return False
 
 
+def create_draft(to: str | None, subject: str, body: str, cc: str | None = None) -> bool:
+    """Save a new (non-threaded) email as a Gmail draft."""
+    service = _get_gmail_service()
+    if not service:
+        return False
+    try:
+        message = email_lib.message.EmailMessage()
+        if to:
+            message["To"] = to
+        if cc:
+            message["Cc"] = cc
+        message["Subject"] = subject
+        message.set_content(body)
+        encoded = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        service.users().drafts().create(
+            userId="me", body={"message": {"raw": encoded}}
+        ).execute()
+        return True
+    except Exception as error:
+        print(f"[Gmail Connector] Error creating draft: {error}")
+        return False
+
+
+def create_draft_reply(
+    *,
+    to: str,
+    subject: str,
+    body: str,
+    in_reply_to_rfc822_id: str,
+    thread_id: str | None,
+    cc: str | None = None,
+) -> bool:
+    """Save a threaded reply as a Gmail draft (same threading headers as send_reply)."""
+    service = _get_gmail_service()
+    if not service:
+        return False
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+    try:
+        message = email_lib.message.EmailMessage()
+        message["To"] = to
+        if cc:
+            message["Cc"] = cc
+        message["Subject"] = subject
+        if in_reply_to_rfc822_id:
+            message["In-Reply-To"] = in_reply_to_rfc822_id
+            message["References"] = in_reply_to_rfc822_id
+        message.set_content(body)
+        encoded = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        msg_payload: Dict[str, Any] = {"raw": encoded}
+        if thread_id:
+            msg_payload["threadId"] = thread_id
+        service.users().drafts().create(
+            userId="me", body={"message": msg_payload}
+        ).execute()
+        return True
+    except Exception as error:
+        print(f"[Gmail Connector] Error creating draft reply: {error}")
+        return False
+
+
 def send_reply(
     *,
     to: str,
@@ -324,6 +402,7 @@ def send_reply(
     body: str,
     in_reply_to_rfc822_id: str,
     thread_id: str | None,
+    cc: str | None = None,
 ) -> bool:
     """
     Send a threaded reply. The message lands inside the same Gmail
@@ -337,6 +416,9 @@ def send_reply(
         keeps it inside the originating thread on our account.
 
     Subject is normalised to "Re: ..." if not already prefixed.
+
+    cc is optional — only included when the teacher explicitly opted in to
+    "reply all" (excluded by default to avoid accidental over-sharing).
     """
     service = _get_gmail_service()
     if not service:
@@ -348,6 +430,8 @@ def send_reply(
     try:
         message = email_lib.message.EmailMessage()
         message["To"] = to
+        if cc:
+            message["Cc"] = cc
         message["Subject"] = subject
         if in_reply_to_rfc822_id:
             message["In-Reply-To"] = in_reply_to_rfc822_id
@@ -519,11 +603,15 @@ def fetch_email_detail(message_id: str) -> Dict[str, Any] | None:
         rfc822_id = next(
             (h["value"] for h in headers if h["name"].lower() == "message-id"), ""
         )
+        cc_raw = ", ".join(
+            h["value"] for h in headers if h["name"].lower() == "cc"
+        )
         body = _extract_body(message_detail.get("payload", {}))
         return {
             "body": body,
             "thread_id": message_detail.get("threadId", ""),
             "rfc822_message_id": rfc822_id,
+            "cc": cc_raw,
         }
     except HttpError as error:
         print(f"[Gmail Connector] Could not fetch message {message_id}: {error}")

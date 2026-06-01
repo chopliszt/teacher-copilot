@@ -127,7 +127,13 @@ async def _scheduled_gmail_sync() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()  # create tables on startup (no-op if they already exist)
+    try:
+        init_db()
+    except Exception as e:
+        msg = str(e)
+        if "could not translate host name" in msg or "nodename nor servname" in msg:
+            print("\n[DB] ❌ Cannot reach Supabase — check your internet connection.\n")
+        raise
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
@@ -281,11 +287,7 @@ def _get_current_time() -> datetime:
 
 def _calculate_priority_score(task: Dict[str, Any], current_time: datetime) -> int:
     """
-    Calculate priority score for a task based on multiple factors
-
-    Args:
-        task: Task dictionary with priority information
-        current_time: Current datetime for comparison
+    Calculate priority score for a task based on multiple factors.
 
     Returns:
         int: Priority score (higher = more urgent)
@@ -308,6 +310,24 @@ def _calculate_priority_score(task: Dict[str, Any], current_time: datetime) -> i
             score += 150
     except (ValueError, TypeError):
         pass
+
+    # Staleness boost — a task sitting untouched for several days is being avoided;
+    # surface it before the avoidance becomes a crisis.
+    created_at_str = task.get("created_at", "")
+    if created_at_str:
+        try:
+            created = datetime.fromisoformat(created_at_str)
+            if created.tzinfo is not None:
+                created = created.replace(tzinfo=None)
+            age_days = (current_time - created).days
+            if age_days >= 7:
+                score += 150
+            elif age_days >= 4:
+                score += 80
+            elif age_days >= 2:
+                score += 30
+        except (ValueError, TypeError):
+            pass
 
     # Estimated time (shorter tasks get slight priority)
     try:
@@ -431,16 +451,34 @@ def _action_item_to_task(item: str, idx: int) -> Dict[str, Any]:
 
 
 def _user_task_to_task(record: "UserTaskRecord") -> Dict[str, Any]:
-    """Convert a user-created task record into the Mistral task format."""
+    """Convert a user-created task record into the Mistral task format.
+
+    Priority is escalated to "high" at runtime when the due date is today or
+    tomorrow — the stored label stays unchanged; this is only for ranking.
+    created_at is forwarded so the scoring algorithm can apply a staleness boost.
+    """
+    from datetime import date as _date, timedelta as _timedelta
+
+    effective_priority = record.priority
+    if record.due_date:
+        try:
+            due = _date.fromisoformat(record.due_date)
+            tomorrow = _date.today() + _timedelta(days=1)
+            if due <= tomorrow:
+                effective_priority = "high"
+        except ValueError:
+            pass
+
     return {
         "id": f"user_{record.id}",
         "title": record.title,
         "description": record.title,
-        "priority": record.priority,
+        "priority": effective_priority,
         "due_date": record.due_date or "",
         "estimated_time": "30 minutes",
         "related_class": "All",
         "related_subject": "Personal",
+        "created_at": record.created_at or "",
     }
 
 
@@ -477,11 +515,12 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
         # User-added tasks
         user_task_records = db.execute(select(UserTaskRecord)).scalars().all()
 
-        # Action-required emails
+        # Action-required emails (exclude soft-dismissed ones)
         email_records = (
             db.execute(
                 select(ImportantEmailRecord).where(
-                    ImportantEmailRecord.category == "action_required"
+                    ImportantEmailRecord.category == "action_required",
+                    ImportantEmailRecord.dismissed_at.is_(None),
                 )
             )
             .scalars()
@@ -754,26 +793,62 @@ async def get_absences(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     ]
 
 
+def _parse_cc_addresses(raw_cc: str | None) -> List[str]:
+    """
+    Parse a raw Cc header value into a list of clean email addresses.
+
+    Input examples (any of these):
+      "Alice <alice@school.cr>, bob@school.cr"
+      "carolina.marin@goldenvalley.ed.cr"
+      None / ""
+
+    Returns clean addresses with display names stripped — the format the
+    frontend composer wants for its chip list. Order is preserved so the
+    teacher sees CCs in the same order Gmail did.
+    """
+    if not raw_cc:
+        return []
+    from email.utils import getaddresses
+    out: List[str] = []
+    seen: set[str] = set()
+    for _, addr in getaddresses([raw_cc]):
+        addr = (addr or "").strip()
+        if addr and "@" in addr and addr not in seen:
+            seen.add(addr)
+            out.append(addr)
+    return out
+
+
 @app.delete("/api/important-emails/{email_id}")
 async def dismiss_email(email_id: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
-    """Dismiss a single action-required email."""
+    """
+    Soft-dismiss a single action-required email.
+
+    We stamp dismissed_at instead of deleting the row so Gmail sync cannot
+    re-insert the same email on next app load (the row already exists, so
+    process_batch's 'if not db.get(...)' check skips it permanently).
+    """
     record = db.get(ImportantEmailRecord, email_id)
     if not record:
         raise HTTPException(status_code=404, detail="Email not found")
-    db.delete(record)
+    record.dismissed_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     return {"deleted": True}
 
 
 @app.delete("/api/important-emails")
 async def dismiss_all_emails(db: Session = Depends(get_db)) -> Dict[str, Any]:
-    """Dismiss all action-required emails (clean slate)."""
-    from sqlalchemy import delete as sql_delete
-    db.execute(
-        sql_delete(ImportantEmailRecord).where(
-            ImportantEmailRecord.category == "action_required"
+    """Soft-dismiss all action-required emails (clean slate)."""
+    from sqlalchemy import select as sql_select
+    records = db.execute(
+        sql_select(ImportantEmailRecord).where(
+            ImportantEmailRecord.category == "action_required",
+            ImportantEmailRecord.dismissed_at.is_(None),
         )
-    )
+    ).scalars().all()
+    now = datetime.now(timezone.utc).isoformat()
+    for r in records:
+        r.dismissed_at = now
     db.commit()
     return {"deleted": True}
 
@@ -786,7 +861,8 @@ async def get_important_emails(db: Session = Depends(get_db)) -> List[Dict[str, 
     records = (
         db.execute(
             select(ImportantEmailRecord).where(
-                ImportantEmailRecord.category == "action_required"
+                ImportantEmailRecord.category == "action_required",
+                ImportantEmailRecord.dismissed_at.is_(None),
             )
         )
         .scalars()
@@ -817,7 +893,7 @@ async def get_email_detail(
     if not record:
         raise HTTPException(status_code=404, detail="Email not found")
 
-    if not record.body or not record.rfc822_message_id:
+    if not record.body or not record.rfc822_message_id or record.cc is None:
         try:
             from connectors.gmail import fetch_email_detail
             detail = fetch_email_detail(email_id)
@@ -828,6 +904,10 @@ async def get_email_detail(
                     record.thread_id = detail["thread_id"]
                 if detail.get("rfc822_message_id") and not record.rfc822_message_id:
                     record.rfc822_message_id = detail["rfc822_message_id"]
+                # cc is "" when the original had no CC — store that (not None)
+                # so we don't keep re-querying Gmail every time the chat opens.
+                if record.cc is None:
+                    record.cc = detail.get("cc", "") or ""
                 db.commit()
         except Exception as e:
             print(f"[Chat] Lazy backfill failed for {email_id}: {e}")
@@ -842,6 +922,7 @@ async def get_email_detail(
         "category": record.category,
         "thread_id": record.thread_id or "",
         "rfc822_message_id": record.rfc822_message_id or "",
+        "cc": _parse_cc_addresses(record.cc),
     }
 
 
@@ -894,7 +975,11 @@ async def chat_task(
     if body.source == "email":
         email_record = db.get(ImportantEmailRecord, body.task_id)
         # Lazy backfill so the chat has the body even for old rows
-        if email_record and (not email_record.body or not email_record.rfc822_message_id):
+        if email_record and (
+            not email_record.body
+            or not email_record.rfc822_message_id
+            or email_record.cc is None
+        ):
             try:
                 from connectors.gmail import fetch_email_detail
                 detail = fetch_email_detail(body.task_id)
@@ -905,6 +990,8 @@ async def chat_task(
                         email_record.thread_id = detail["thread_id"]
                     if detail.get("rfc822_message_id") and not email_record.rfc822_message_id:
                         email_record.rfc822_message_id = detail["rfc822_message_id"]
+                    if email_record.cc is None:
+                        email_record.cc = detail.get("cc", "") or ""
                     db.commit()
             except Exception as e:
                 print(f"[Chat] Lazy backfill failed during chat: {e}")
@@ -977,10 +1064,14 @@ async def draft_email_reply_endpoint(
     import re
     match = re.search(r"<([^>]+)>", record.sender)
     suggested_to = match.group(1) if match else record.sender
+    # original_cc lets the composer surface the original CC list as
+    # opt-in chips. Excluded from the actual send by default — the teacher
+    # has to toggle "Reply all" to include them.
     return {
         "to": suggested_to,
         "subject": draft["subject"],
         "body": draft["body"],
+        "original_cc": _parse_cc_addresses(record.cc),
     }
 
 
@@ -988,6 +1079,10 @@ class SendReplyRequest(BaseModel):
     to: str
     subject: str
     body: str
+    # Optional comma-separated CC string. Composer only sends this when the
+    # teacher explicitly opted in to "Reply all" or added chips manually —
+    # the default reply path is to-sender-only.
+    cc: Optional[str] = None
 
 
 @app.post("/api/emails/{email_id}/reply")
@@ -1010,23 +1105,59 @@ async def send_email_reply(
     if not record:
         raise HTTPException(status_code=404, detail="Email not found")
 
+    cc_clean = (body.cc or "").strip() or None
     sent = send_reply(
         to=body.to,
         subject=body.subject,
         body=body.body,
         in_reply_to_rfc822_id=record.rfc822_message_id or "",
         thread_id=record.thread_id or None,
+        cc=cc_clean,
     )
     if not sent:
         raise HTTPException(status_code=500, detail="Reply send failed. Check backend logs.")
 
-    # Track recipient(s) so they autocomplete next time
+    # Track recipient(s) so they autocomplete next time. CC addresses count
+    # as people the teacher has corresponded with, so seed them too.
     try:
         _upsert_recipients(db, body.to)
+        if cc_clean:
+            _upsert_recipients(db, cc_clean)
     except Exception as e:
         print(f"[send_email_reply] recipient tracking failed (non-fatal): {e}")
 
     return {"sent": True}
+
+
+@app.post("/api/emails/{email_id}/save-draft")
+async def save_email_reply_as_draft(
+    email_id: str,
+    body: SendReplyRequest,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Save a threaded reply to Gmail Drafts instead of sending it."""
+    from connectors.gmail import is_configured, create_draft_reply
+
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="Gmail is not configured.")
+
+    record = db.get(ImportantEmailRecord, email_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    cc_clean = (body.cc or "").strip() or None
+    saved = create_draft_reply(
+        to=body.to,
+        subject=body.subject,
+        body=body.body,
+        in_reply_to_rfc822_id=record.rfc822_message_id or "",
+        thread_id=record.thread_id or None,
+        cc=cc_clean,
+    )
+    if not saved:
+        raise HTTPException(status_code=500, detail="Draft save failed. Check backend logs.")
+
+    return {"saved": True}
 
 
 def _upsert_recipients(db: Session, to_field: str) -> None:
@@ -1060,6 +1191,7 @@ async def compose_email(
     to: str = Form(...),
     subject: str = Form(...),
     body: str = Form(...),
+    cc: str = Form(default=""),
     attachments: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
@@ -1093,18 +1225,56 @@ async def compose_email(
             "data": data,
         })
 
+    cc_clean = (cc or "").strip() or None
     sent = send_email_with_attachments(
-        to=to, subject=subject, body=body, attachments=files_payload or None,
+        to=to,
+        subject=subject,
+        body=body,
+        cc=cc_clean,
+        attachments=files_payload or None,
     )
     if not sent:
         raise HTTPException(status_code=500, detail="Send failed. Check backend logs.")
 
     try:
         _upsert_recipients(db, to)
+        if cc_clean:
+            _upsert_recipients(db, cc_clean)
     except Exception as e:
         print(f"[compose_email] recipient tracking failed (non-fatal): {e}")
 
     return {"sent": True, "attachment_count": len(files_payload)}
+
+
+class SaveDraftRequest(BaseModel):
+    to: str = ""
+    subject: str
+    body: str
+    cc: str = ""
+
+
+@app.post("/api/emails/save-draft")
+async def save_email_compose_as_draft(
+    body: SaveDraftRequest,
+) -> Dict[str, Any]:
+    """Save a new (non-threaded) freeform email to Gmail Drafts."""
+    from connectors.gmail import is_configured, create_draft
+
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="Gmail is not configured.")
+
+    cc_clean = (body.cc or "").strip() or None
+    to_clean = (body.to or "").strip() or None
+    saved = create_draft(
+        to=to_clean,
+        subject=body.subject,
+        body=body.body,
+        cc=cc_clean,
+    )
+    if not saved:
+        raise HTTPException(status_code=500, detail="Draft save failed. Check backend logs.")
+
+    return {"saved": True}
 
 
 class AddTaskRequest(BaseModel):
@@ -1407,6 +1577,37 @@ async def get_last_session(
     }
 
 
+@app.get("/api/class/{group}/sessions")
+async def get_group_sessions(
+    group: str,
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """Return all session logs for a class group, newest first."""
+    from sqlalchemy import desc, select
+
+    records = (
+        db.execute(
+            select(ClassSessionRecord)
+            .where(ClassSessionRecord.group == group)
+            .order_by(desc(ClassSessionRecord.date), desc(ClassSessionRecord.schedule_day))
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "group": r.group,
+            "schedule_day": r.schedule_day,
+            "date": r.date,
+            "notes": r.notes,
+            "what_worked": r.what_worked,
+            "created_at": r.created_at,
+        }
+        for r in records
+    ]
+
+
 # ── Lesson plan ───────────────────────────────────────────────────────────────
 #
 # The "Plan lesson" drawer on each class card. Marimba opens with 3 distinct
@@ -1585,7 +1786,7 @@ async def lesson_plan_chat_endpoint(
     context_block, has_history, snapshot = _build_lesson_plan_context(group, db)
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
 
-    reply = await call_lesson_plan_chat(
+    reply, tool_calls = await call_lesson_plan_chat(
         group=group,
         messages=messages,
         context_block=context_block,
@@ -1596,7 +1797,7 @@ async def lesson_plan_chat_endpoint(
             status_code=503,
             detail="Mistral is not reachable right now. Try again in a moment.",
         )
-    return {"reply": reply, "context_snapshot": snapshot}
+    return {"reply": reply, "context_snapshot": snapshot, "tool_calls": tool_calls}
 
 
 @app.post("/api/lesson-plan/{group}/assignment")
@@ -1700,6 +1901,23 @@ async def recent_lesson_plans_endpoint(
         }
         for r in records
     ]
+
+
+@app.get("/api/student-flags")
+async def get_student_flags() -> Dict[str, Any]:
+    """
+    Return the full per-group map of students who need academic support.
+    Powers the briefing card's "students needing support" list and flag
+    count. Source: backend/data/student_flags.json (manually maintained).
+    """
+    path = Path(__file__).parent / "data" / "student_flags.json"
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
 def _build_voice_context(
@@ -1813,7 +2031,8 @@ async def handle_voice(
         email_records = (
             db.execute(
                 select(ImportantEmailRecord).where(
-                    ImportantEmailRecord.category == "action_required"
+                    ImportantEmailRecord.category == "action_required",
+                    ImportantEmailRecord.dismissed_at.is_(None),
                 )
             )
             .scalars()

@@ -1,8 +1,19 @@
 import { useState } from 'react';
 import { useUserTasks, useAddTask, useDeleteTask } from '../lib/hooks/useUserTasks';
+import { usePriorities } from '../lib/hooks/usePriorities';
 
 export function UserTaskSection() {
   const { data: tasks = [] } = useUserTasks();
+  const { data: priorityData } = usePriorities();
+
+  // IDs currently elevated to Top N — hide them here to avoid showing the same
+  // item in two places at once (cognitive noise for ADHD).
+  const elevatedIds = new Set(
+    (priorityData?.priorities ?? [])
+      .filter((p) => p.source === 'user_task')
+      .map((p) => p.id.replace(/^user_/, ''))
+  );
+  const visibleTasks = tasks.filter((t) => !elevatedIds.has(t.id));
   const addTask = useAddTask();
   const deleteTask = useDeleteTask();
 
@@ -43,7 +54,7 @@ export function UserTaskSection() {
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-stone-600" />
           <h2 className="text-stone-500 text-xs font-semibold tracking-widest uppercase">
-            Your tasks{tasks.length > 0 ? ` · ${tasks.length}` : ''}
+            Your tasks{visibleTasks.length > 0 ? ` · ${visibleTasks.length}` : ''}
           </h2>
         </div>
         {!formOpen && (
@@ -112,13 +123,13 @@ export function UserTaskSection() {
       )}
 
       {/* Task list */}
-      {tasks.length === 0 && !formOpen ? (
+      {visibleTasks.length === 0 && !formOpen ? (
         <p className="text-stone-700 text-xs italic">
           No tasks added yet. Tap "+ Add task" to throw something into the mix.
         </p>
       ) : (
         <div className="space-y-1.5">
-          {tasks.map((task) => (
+          {visibleTasks.map((task) => (
             <div
               key={task.id}
               className="flex items-center gap-3 bg-stone-900/60 border border-stone-800/60 rounded-xl px-3 py-2.5"

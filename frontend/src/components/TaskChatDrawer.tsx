@@ -4,6 +4,7 @@ import {
   chatWithTask,
   draftEmailReply,
   fetchEmailDetail,
+  saveEmailReplyAsDraft,
   sendEmailReply,
   type ChatMessage,
   type PriorityItem,
@@ -21,6 +22,9 @@ interface DraftState {
   to: string;
   subject: string;
   body: string;
+  // Addresses that were on the original Cc line. Surfaced as opt-in chips
+  // so the teacher can include some/all of them without re-typing.
+  originalCc: string[];
 }
 
 export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProps) {
@@ -32,8 +36,15 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [draftPending, setDraftPending] = useState(false);
   const [sendPending, setSendPending] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sentOK, setSentOK] = useState(false);
+  const [savedDraft, setSavedDraft] = useState(false);
+  // Addresses currently selected for inclusion as Cc on send. Subset of
+  // draft.originalCc. Empty by default = reply-to-sender-only (safer for
+  // accidental over-sharing).
+  const [ccIncluded, setCcIncluded] = useState<Set<string>>(new Set());
+  const [ccExpanded, setCcExpanded] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
@@ -51,12 +62,90 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
     setSendPending(false);
     setSendError(null);
     setSentOK(false);
+    setCcIncluded(new Set());
+    setCcExpanded(false);
   }, [priority?.id]);
 
   // Auto-scroll the chat thread as new messages arrive.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length, draft]);
+
+  // Proactive opener on mount. Two paths:
+  //   - Email tasks (source==='email') hit the dedicated draft-reply
+  //     endpoint and populate the draft preview block (with CC chips).
+  //     Replies need threading, so they can't go through the chat path.
+  //   - Other tasks (user_task / meeting / action_item) hit chatWithTask
+  //     with messages=[]. Marimba's first reply contains an `email`,
+  //     `draft`, `prompt`, or `handout` fence block (per the FIRST-TURN
+  //     OPENER section of the system prompt) — or a concrete question
+  //     if the task is too vague to draft against.
+  useEffect(() => {
+    if (!priority) return;
+    let cancelled = false;
+    (async () => {
+      if (isEmail) {
+        setDraftPending(true);
+        setSendError(null);
+        try {
+          const result = await draftEmailReply(priority.id, []);
+          if (cancelled) return;
+          setDraft({
+            to: result.to,
+            subject: result.subject,
+            body: result.body,
+            originalCc: result.original_cc,
+          });
+          setCcIncluded(new Set());
+          setCcExpanded(false);
+        } catch (err) {
+          if (cancelled) return;
+          setSendError(
+            err instanceof Error
+              ? err.message
+              : 'No pude generar el borrador automático. Probá "Draft a reply".',
+          );
+        } finally {
+          if (!cancelled) setDraftPending(false);
+        }
+        return;
+      }
+
+      // Non-email task — let Marimba decide whether to draft or ask.
+      setChatPending(true);
+      setChatError(null);
+      try {
+        const result = await chatWithTask({
+          task_id: priority.id,
+          source: priority.source ?? 'unknown',
+          title: priority.title,
+          messages: [],
+        });
+        if (cancelled) return;
+        setMessages([
+          {
+            role: 'assistant',
+            content: result.reply,
+            tool_calls: result.tool_calls,
+          },
+        ]);
+      } catch (err) {
+        if (cancelled) return;
+        // Non-fatal — chat input is still there for the teacher to drive.
+        setChatError(
+          err instanceof Error
+            ? err.message
+            : 'Marimba no respondió a tiempo. Podés escribirle abajo.',
+        );
+      } finally {
+        if (!cancelled) setChatPending(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // priority?.id triggers the effect on task changes. isEmail and the
+    // other refs are stable per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priority?.id]);
 
   // Close on Escape so the keyboard works like a native modal.
   useEffect(() => {
@@ -126,7 +215,16 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
     setSendError(null);
     try {
       const result = await draftEmailReply(priority.id, messages);
-      setDraft({ to: result.to, subject: result.subject, body: result.body });
+      setDraft({
+        to: result.to,
+        subject: result.subject,
+        body: result.body,
+        originalCc: result.original_cc,
+      });
+      // Reset CC state for the new draft — start with no one included so
+      // "reply" defaults to the sender only. Teacher opts in via chips.
+      setCcIncluded(new Set());
+      setCcExpanded(false);
     } catch (err) {
       setSendError(
         err instanceof Error
@@ -143,7 +241,16 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
     setSendPending(true);
     setSendError(null);
     try {
-      await sendEmailReply(priority.id, draft);
+      // Only include CC when the teacher explicitly opted into addresses.
+      const ccString = ccIncluded.size > 0
+        ? Array.from(ccIncluded).join(', ')
+        : undefined;
+      await sendEmailReply(priority.id, {
+        to: draft.to,
+        subject: draft.subject,
+        body: draft.body,
+        cc: ccString,
+      });
       setSentOK(true);
       playCannedAudio('email_sent.mp3');
       // After a brief confirmation, mark task done & close the drawer.
@@ -161,6 +268,46 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
     } finally {
       setSendPending(false);
     }
+  }
+
+  async function handleSaveDraftReply() {
+    if (!priority || !draft || savingDraft) return;
+    setSavingDraft(true);
+    setSendError(null);
+    try {
+      const ccString = ccIncluded.size > 0
+        ? Array.from(ccIncluded).join(', ')
+        : undefined;
+      await saveEmailReplyAsDraft(priority.id, {
+        to: draft.to,
+        subject: draft.subject,
+        body: draft.body,
+        cc: ccString,
+      });
+      setSavedDraft(true);
+    } catch (err) {
+      setSendError(
+        err instanceof Error ? err.message : 'Draft save failed. Check the backend logs.',
+      );
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
+  function toggleCcChip(addr: string) {
+    setCcIncluded((prev) => {
+      const next = new Set(prev);
+      if (next.has(addr)) next.delete(addr);
+      else next.add(addr);
+      return next;
+    });
+  }
+
+  function toggleReplyAll() {
+    if (!draft) return;
+    setCcIncluded((prev) =>
+      prev.size === draft.originalCc.length ? new Set() : new Set(draft.originalCc),
+    );
   }
 
   const emailBody = emailQuery.data?.body ?? '';
@@ -226,12 +373,35 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
           {messages.length === 0 && !chatPending && (
             <p className="text-stone-700 text-xs">
-              Tell Marimba what you want to do with this task. Examples:{' '}
-              <span className="text-stone-600 italic">
-                {isEmail
-                  ? '"draft a friendly reply", "what is this person really asking?", "give me a 2-line response in Spanish"'
-                  : '"do I really need to do this today?", "give me a 30-second take", "break this into 2 steps"'}
-              </span>
+              {isEmail ? (
+                draftPending ? (
+                  <>Marimba is drafting a reply for you…</>
+                ) : draft ? (
+                  <>
+                    Draft ready below — edit and send, or chat here to refine
+                    (e.g.{' '}
+                    <span className="text-stone-600 italic">
+                      "más corto", "en inglés", "responder solo que sí"
+                    </span>
+                    ).
+                  </>
+                ) : (
+                  <>
+                    Tell Marimba what you want to do.{' '}
+                    <span className="text-stone-600 italic">
+                      "draft a reply", "what is this person really asking?"
+                    </span>
+                  </>
+                )
+              ) : (
+                <>
+                  Tell Marimba what you want to do with this task. Examples:{' '}
+                  <span className="text-stone-600 italic">
+                    "do I really need to do this today?", "give me a 30-second
+                    take", "break this into 2 steps"
+                  </span>
+                </>
+              )}
             </p>
           )}
           {messages.map((m, i) => (
@@ -265,6 +435,57 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
               className="w-full bg-stone-950 border border-stone-800 rounded-lg px-3 py-1.5 text-stone-300 text-xs focus:outline-none focus:border-stone-600"
               placeholder="To"
             />
+            {/* CC row — only renders when the original email had CCs. Default
+                is none selected (reply-to-sender-only); teacher taps chips to
+                opt in, or "Reply all" to toggle them all on/off. */}
+            {draft.originalCc.length > 0 && (
+              <div className="bg-stone-950 border border-stone-800 rounded-lg px-3 py-2 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => setCcExpanded((v) => !v)}
+                    className="text-stone-500 hover:text-stone-300 text-xs flex items-center gap-1.5"
+                  >
+                    <span className="text-stone-600 text-[0.65rem] uppercase tracking-widest font-semibold">
+                      Cc
+                    </span>
+                    <span className="text-stone-400">
+                      {ccIncluded.size === 0
+                        ? `${draft.originalCc.length} other${draft.originalCc.length === 1 ? '' : 's'} not included`
+                        : `${ccIncluded.size} of ${draft.originalCc.length} included`}
+                    </span>
+                    <span className="text-stone-600">{ccExpanded ? '▾' : '▸'}</span>
+                  </button>
+                  <button
+                    onClick={toggleReplyAll}
+                    className="text-[0.7rem] font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 px-2 py-0.5 rounded transition-all"
+                  >
+                    {ccIncluded.size === draft.originalCc.length ? 'Reply (sender only)' : 'Reply all'}
+                  </button>
+                </div>
+                {ccExpanded && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {draft.originalCc.map((addr) => {
+                      const included = ccIncluded.has(addr);
+                      return (
+                        <button
+                          key={addr}
+                          onClick={() => toggleCcChip(addr)}
+                          className={`text-[0.7rem] px-2 py-0.5 rounded-full border transition-colors ${
+                            included
+                              ? 'bg-amber-500/20 border-amber-500/40 text-amber-200'
+                              : 'bg-stone-900 border-stone-800 text-stone-500 hover:border-stone-700 hover:text-stone-400'
+                          }`}
+                          title={included ? 'Tap to exclude' : 'Tap to include'}
+                        >
+                          {included && <span className="mr-1">✓</span>}
+                          {addr}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
             <input
               value={draft.subject}
               onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
@@ -281,6 +502,8 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
               <span className="text-xs text-stone-600">
                 {sentOK
                   ? 'Sent ✓'
+                  : savedDraft
+                  ? 'Draft saved to Gmail ✓'
                   : sendError
                   ? <span className="text-amber-500/80">{sendError}</span>
                   : ' '}
@@ -288,10 +511,17 @@ export function TaskChatDrawer({ priority, onClose, onDone }: TaskChatDrawerProp
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setDraft(null)}
-                  disabled={sendPending || sentOK}
+                  disabled={sendPending || savingDraft || sentOK}
                   className="text-xs text-stone-500 hover:text-stone-300 px-2 disabled:opacity-40"
                 >
                   discard
+                </button>
+                <button
+                  onClick={handleSaveDraftReply}
+                  disabled={savingDraft || sentOK || savedDraft || !draft.to || !draft.body}
+                  className="text-xs text-stone-400 border border-stone-700 hover:border-stone-600 hover:text-stone-200 px-3 py-1.5 rounded-lg transition-all active:scale-95 disabled:opacity-40"
+                >
+                  {savingDraft ? 'Saving…' : savedDraft ? 'Saved' : 'Save as draft'}
                 </button>
                 <button
                   onClick={handleSendReply}

@@ -78,7 +78,7 @@ export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }
       if (rating === 'relevant') {
         if (item.source === 'user_task') {
           await deleteUserTask(item.id.replace(/^user_/, ''));
-          queryClient.invalidateQueries({ queryKey: ['tasks'] });
+          queryClient.invalidateQueries({ queryKey: ['user-tasks'] });
         } else if (item.source === 'email') {
           await dismissEmail(item.id);
           queryClient.invalidateQueries({ queryKey: ['important-emails'] });

@@ -61,7 +61,7 @@ async def call_mistral(
 
         if (
             isinstance(priorities, list)
-            and len(priorities) == 3
+            and 1 <= len(priorities) <= 3
             and all(isinstance(p, dict) and "id" in p and "reason" in p for p in priorities)
         ):
             return [{"id": str(p["id"]), "reason": str(p["reason"])} for p in priorities]
