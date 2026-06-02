@@ -45,6 +45,25 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
   // there are many flagged students (e.g. 7B has 5).
   const [flagsExpanded, setFlagsExpanded] = useState(false);
 
+  // The backend upserts the session note by "{group}_{today}_{schedule_day}",
+  // so re-saving overwrites today's note rather than creating a duplicate.
+  // We only treat the panel as "editing" when lastSession is actually from
+  // today — otherwise lastSession is an older note and saving would write a
+  // brand-new today row, so prefilling it would be misleading.
+  // en-CA gives YYYY-MM-DD in *local* time, matching the backend's date.today().
+  const today = new Date().toLocaleDateString('en-CA');
+  const editingToday = !!lastSession && lastSession.date === today;
+
+  // Open the form, prefilling with today's note if one already exists so the
+  // teacher can see and correct what's there (no blank-slate guessing).
+  const openForm = () => {
+    if (editingToday && lastSession) {
+      setNotes(lastSession.notes);
+      setWhatWorked(lastSession.what_worked ?? '');
+    }
+    setFormOpen(true);
+  };
+
   const handleSave = () => {
     logSession.mutate(
       { notes, what_worked: whatWorked || undefined },
@@ -190,14 +209,16 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
       {/* Log session */}
       {!formOpen ? (
         <button
-          onClick={() => setFormOpen(true)}
+          onClick={openForm}
           className="w-full text-xs text-stone-600 hover:text-stone-400 border border-stone-800 hover:border-stone-700 px-3 py-2 rounded-lg transition-colors text-left"
         >
-          {saved ? '✓ Session logged' : '+ Log this session'}
+          {saved ? '✓ Session logged' : editingToday ? '✎ Edit today’s note' : '+ Log this session'}
         </button>
       ) : (
         <div className="space-y-3 pt-1">
-          <p className="text-stone-500 text-xs font-semibold uppercase tracking-wide">Log this session</p>
+          <p className="text-stone-500 text-xs font-semibold uppercase tracking-wide">
+            {editingToday ? 'Edit today’s note' : 'Log this session'}
+          </p>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

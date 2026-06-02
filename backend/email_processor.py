@@ -89,6 +89,11 @@ async def process_batch(
             "subject": e.subject,
             "snippet": e.snippet,
             "body": e.body or "",
+            # From/To/Cc let the model gate on "addressed to me" vs broadcast/
+            # Cc-only — without these the key-sender and CC rules ran blind.
+            "sender": e.sender,
+            "to": e.recipient,
+            "cc": e.cc or "",
         }
         for e in emails
     ]

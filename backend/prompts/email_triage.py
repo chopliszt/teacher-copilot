@@ -72,14 +72,47 @@ Your job is to classify each email into exactly one category:
         - Replies or threads where the teacher is only CC'd with no ask
         - Emails about students in grades 11–12 with no direct ask
 
-OVERRIDE RULE — direct mentions always win:
-  If the email body or snippet contains the teacher's first name (e.g.
-  "Camilo", "@Camilo", "Hola Camilo", "profesor Infante") AND any action
-  verb directed at them (escalar, enviar, confirmar, llenar, revisar,
-  responder, adjuntar, contestar, avisar, coordinar, programar, asistir,
-  ayudar, pasar, mandar, pagar, traer), classify as action_required —
-  regardless of who the sender is. Direct mentions trump every other
-  signal in this prompt.
+HOW TO DECIDE — addressee first, then ask:
+  The single question that matters is: **is this email asking ME,
+  specifically, to do or say something?** Decide it in two ordered steps.
+
+  STEP 1 — Is it addressed to me personally?
+    The teacher is Camilo Infante (profesor Infante / "profe").
+    ADDRESSED-TO-ME signals:
+      - The greeting names me: "Hola Camilo", "Camilo,", "@Camilo",
+        "profe", "profesor Infante".
+      - I am the primary recipient — my name/address is in the To line,
+        not merely one of many and not only on Cc.
+    BROADCAST / NOT-TO-ME signals (do NOT treat as personal):
+      - I am only on the Cc line.
+      - To is a large list or a group alias (e.g. "Personal Docente",
+        "staff@...", "todos@...").
+      - The greeting or the To line addresses someone else and I'm copied.
+
+  STEP 2 — Only if it IS addressed to me: does it expect something back?
+    Either of these counts as a yes:
+      - An imperative directed at me (escalar, enviar, confirmar, llenar,
+        revisar, responder, adjuntar, coordinar, programar, asistir,
+        ayudar, pasar, mandar, pagar, traer, etc.).
+      - A QUESTION I'm expected to answer — even with NO command verb:
+        "¿Cómo sería la reestructuración del comité?", "¿Me confirmás?",
+        "¿Qué te parece?", "¿Cuándo podrías?". A direct question to me
+        IS an ask.
+
+  If BOTH steps are yes → action_required, regardless of who sent it.
+
+  IMPORTANT — do not flag on a question alone. A question in a school-wide
+  bulletin, or a question aimed at someone else in a thread I'm only copied
+  on, is NOT my ask → ignore. The gate is "addressed to me"; the question
+  only matters after that gate passes.
+
+  When it IS addressed to me and you are genuinely unsure whether it needs a
+  reply, lean toward action_required — a missed personal ask costs more than
+  one card the teacher can dismiss in a tap. This lean applies ONLY to mail
+  addressed to me, never to broadcast or Cc-only mail.
+
+  Pure pleasantries addressed to me with no ask ("Gracias Camilo", "Feliz
+  fin de semana", an FYI that says "no need to reply") → ignore.
 
 If the teacher's personal context (provided below) names specific
 collaborators or describes ongoing initiatives they are organizing,
@@ -125,17 +158,25 @@ async def triage_batch(emails: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not api_key:
         return []
 
-    # Include a body excerpt (first 800 chars) so direct mentions buried in
-    # thread replies are visible to the triage model — snippets miss those.
+    # Surface From/To/Cc so the model can gate on "addressed to me" vs
+    # broadcast/Cc-only, plus a body excerpt (first 800 chars) so direct
+    # mentions buried in thread replies are visible — snippets miss those.
     def _fmt(e: dict[str, Any]) -> str:
+        lines = [
+            f'id: {e["id"]}',
+            f'From: {e.get("sender", "")}',
+            f'To: {e.get("to", "")}',
+        ]
+        cc = (e.get("cc") or "").strip()
+        if cc:
+            lines.append(f'Cc: {cc}')
+        lines.append(f'Subject: {e["subject"]}')
+        lines.append(f'Snippet: {e["snippet"]}')
         body = (e.get("body") or "").strip()
         if body:
             body_excerpt = body[:800].replace("\n", " ")
-            return (
-                f'id: {e["id"]}\nSubject: {e["subject"]}\n'
-                f'Snippet: {e["snippet"]}\nBody excerpt: {body_excerpt}'
-            )
-        return f'id: {e["id"]}\nSubject: {e["subject"]}\nSnippet: {e["snippet"]}'
+            lines.append(f'Body excerpt: {body_excerpt}')
+        return "\n".join(lines)
 
     emails_block = "\n\n".join(_fmt(e) for e in emails)
 
