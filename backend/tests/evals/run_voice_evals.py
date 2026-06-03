@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
 """
-Voice Evals — Automated accuracy tests for Marimba's voice action pipeline.
+Voice Evals — Automated accuracy tests for Marimba's voice pipeline.
 
-Sends realistic teacher phrases through the exact same Mistral prompt used in production,
-then checks whether the returned JSON action matches expectations.
+Sends realistic teacher phrases through the EXACT context + prompt used in
+production, then checks two things:
+  1. Action accuracy — does the returned JSON action match expectations?
+  2. Fact accuracy   — does the SPOKEN reply state correct schedule facts?
+
+Why this matters: a previous version of these evals built context with
+``build_context`` (the priority prompt's full block) while production voice
+actually used a stripped, today-only context. The eval was green while
+production hallucinated — e.g. telling the teacher 7B met at 10:50am when it
+really meets at 11:30am. To prevent that class of false-green, these evals now
+call the SAME ``_build_voice_context`` the ``/api/voice`` endpoint uses, fed
+the SAME real ``data/teacher_schedule.json``, with "today" pinned so tomorrow
+is the day under test.
 
 Usage:
     python -m tests.evals.run_voice_evals          # run all evals
@@ -24,93 +35,68 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
-from context_builder import build_context
+import context_builder
+import main
 from prompts.voice import call_voice_mistral
 
-# ── Fake context for deterministic evals ──────────────────────────────────────
+# ── Pin "today" so evals are deterministic ────────────────────────────────────
+#
+# We pin the rolling schedule day to 3, which makes the NEXT class day = Day 4.
+# Day 4 is where 7B lives (11:30am–12:50pm) — the exact case the teacher hit.
+# ``format_schedule_block`` reads ``get_current_schedule_day`` from BOTH the
+# ``main`` and ``context_builder`` namespaces, plus ``main._get_current_time``,
+# so we override all three to freeze the rotation.
 
-EVAL_SCHEDULE = {
-    "homeroom": {"time": "7:30 - 7:50am", "room": "C203", "group": "9A2"},
-    "classes": [
-        {
-            "day": 2,
-            "periods": [
-                {
-                    "time": "7:50am",
-                    "subject": "Diseño Digital",
-                    "room": "Codingspace",
-                    "group": "9A2",
-                },
-                {
-                    "time": "8:30am",
-                    "subject": "Digital Design",
-                    "room": "Codingspace",
-                    "group": "5B2",
-                },
-                {
-                    "time": "10:30am",
-                    "subject": "Digital Design",
-                    "room": "Codingspace",
-                    "group": "8A1",
-                },
-                {
-                    "time": "1:00pm",
-                    "subject": "Diseño Digital",
-                    "room": "Codingspace",
-                    "group": "9A1",
-                },
-            ],
-        }
-    ],
-}
+PINNED_SCHEDULE_DAY = 3
+PINNED_NOW = datetime(2026, 6, 2, 9, 0)  # Tuesday → tomorrow (Wed) is Day 4
+
+main.get_current_schedule_day = lambda: PINNED_SCHEDULE_DAY
+context_builder.get_current_schedule_day = lambda: PINNED_SCHEDULE_DAY
+main._get_current_time = lambda: PINNED_NOW
+
+# Use the REAL production schedule, not a fixture — so these evals catch real
+# regressions in data/teacher_schedule.json the moment they appear.
+with open(
+    os.path.join(os.path.dirname(__file__), "..", "..", "data", "teacher_schedule.json"),
+    encoding="utf-8",
+) as _f:
+    EVAL_SCHEDULE = json.load(_f)
 
 EVAL_TASKS = [
-    {
-        "id": "task_design_cat_1",
-        "title": "Design Cat 1 registration",
-        "description": "Open registration form for Design Cat 1",
-        "priority": "high",
-        "due_date": "2026-03-03",
-        "estimated_time": "15 minutes",
-        "related_class": "9A2",
-        "related_subject": "Diseño Digital",
-    },
-    {
-        "id": "task_grade_projects",
-        "title": "Grade 10A1 final projects",
-        "description": "Grade the final projects for 10A1",
-        "priority": "medium",
-        "due_date": "2026-03-05",
-        "estimated_time": "2 hours",
-        "related_class": "10A1",
-        "related_subject": "Digital Design",
-    },
-    {
-        "id": "task_parent_meeting",
-        "title": "Parent meeting about student progress",
-        "description": "Meeting with parent of student in 8A1",
-        "priority": "high",
-        "due_date": "2026-03-03",
-        "estimated_time": "30 minutes",
-        "related_class": "8A1",
-        "related_subject": "Digital Design",
-    },
+    {"id": "task_design_cat_1", "title": "Design Cat 1 registration", "priority": "high"},
+    {"id": "task_grade_projects", "title": "Grade 10A1 final projects", "priority": "medium"},
+    {"id": "task_parent_meeting", "title": "Parent meeting about 8A1 student", "priority": "high"},
 ]
 
-EVAL_CONTEXT = build_context(
-    tasks=EVAL_TASKS,
+# Every group the teacher teaches — so the context lists which classes have NO
+# session logged. With session_notes=None below, ALL of them are unlogged, which
+# lets us assert Marimba admits "no record" instead of inventing a lesson.
+ALL_GROUPS = list(dict.fromkeys(
+    [(EVAL_SCHEDULE.get("homeroom") or {}).get("group")]
+    + [p["group"] for d in EVAL_SCHEDULE.get("classes", []) for p in d.get("periods", [])]
+))
+ALL_GROUPS = [g for g in ALL_GROUPS if g]
+
+# THE key line: build context through the production code path, not a parallel
+# one. If _build_voice_context ever stops injecting the full schedule again,
+# these fact evals go red.
+EVAL_CONTEXT = main._build_voice_context(
     schedule_data=EVAL_SCHEDULE,
-    current_time=datetime(2026, 3, 3, 7, 15),
+    all_tasks=EVAL_TASKS,
     weekly_data=None,
+    session_notes=None,        # nothing logged → every class is "no record"
+    all_groups=ALL_GROUPS,
 )
 
 
 # ── Test cases ────────────────────────────────────────────────────────────────
-
-# Each test case is a dict with:
+#
+# Each case is a dict with:
 #   - phrase: what the teacher says
 #   - expected_action_type: the action.type we expect (or None for no action)
 #   - expected_fields: optional dict of fields that must match in the action
+#   - response_contains: substrings that MUST all appear in the spoken reply
+#   - response_excludes: substrings that must NOT appear in the spoken reply
 #   - description: human-readable explanation of the test
 
 EVAL_CASES: list[dict] = [
@@ -131,77 +117,123 @@ EVAL_CASES: list[dict] = [
         "phrase": "Can you open my first class of today?",
         "expected_action_type": "open_class",
         "expected_fields": {"group": "9A2"},
-        "description": "Relative reference — first class should resolve to 9A2",
-    },
-    {
-        "phrase": "Open the card of 9A1 so I can log what we did",
-        "expected_action_type": "open_class",
-        "expected_fields": {"group": "9A1"},
-        "description": "Long sentence with intent to log — should still open the class",
+        "description": "Relative reference — first class today (Day 3) is 9A2",
     },
     # ── add_task ──────────────────────────────────────────────────────────
     {
         "phrase": "Add task: grade 10A1 submissions",
         "expected_action_type": "add_task",
-        "expected_fields": {},
         "description": "Explicit add_task command",
     },
     {
         "phrase": "Remind me to print worksheets for 5B2",
         "expected_action_type": "add_task",
-        "expected_fields": {},
         "description": "Implicit task creation via 'remind me'",
     },
     # ── open_priority ─────────────────────────────────────────────────────
     {
         "phrase": "Open my top priority",
         "expected_action_type": "open_priority",
-        "expected_fields": {},
         "description": "Request to open the first priority card",
-    },
-    {
-        "phrase": "What are the details of my main priority? Open it for me",
-        "expected_action_type": "open_priority",
-        "expected_fields": {},
-        "description": "Request for details with explicit open",
     },
     # ── close_all ─────────────────────────────────────────────────────────
     {
         "phrase": "Close everything",
         "expected_action_type": "close_all",
-        "expected_fields": {},
         "description": "Direct close_all command",
     },
     {
         "phrase": "Tidy up the workspace please",
         "expected_action_type": "close_all",
-        "expected_fields": {},
         "description": "Indirect close_all using 'tidy up'",
     },
+    # ── Tier-A actions ────────────────────────────────────────────────────
     {
-        "phrase": "Can you close all the panels?",
-        "expected_action_type": "close_all",
-        "expected_fields": {},
-        "description": "Explicit close all panels",
+        "phrase": "Mark the Design Cat 1 registration task as done",
+        "expected_action_type": "complete_task",
+        "expected_fields": {"id": "task_design_cat_1"},
+        "description": "Complete a named task — must echo its exact bracketed id",
+    },
+    {
+        "phrase": "Show me tomorrow's schedule",
+        "expected_action_type": "view_schedule_day",
+        "expected_fields": {"offset": 1},
+        "description": "Navigate the schedule view to tomorrow (offset +1)",
+    },
+    {
+        "phrase": "Help me plan the lesson for 7B",
+        "expected_action_type": "open_lesson_plan",
+        "expected_fields": {"group": "7B"},
+        "description": "Open the lesson-plan drawer for a group",
+    },
+    {
+        "phrase": "Log 9A1: we finished the logo project and the pair work went well",
+        "expected_action_type": "log_session",
+        "expected_fields": {"group": "9A1"},
+        "description": "Record a class session note for a group (explicit 'log')",
+    },
+    {
+        "phrase": "In 7B today we visited the Microsoft headquarters and it went really well",
+        "expected_action_type": "log_session",
+        "expected_fields": {"group": "7B"},
+        "description": "Narrated lesson with NO 'log' keyword must still fire log_session",
     },
     # ── No action (just conversation) ─────────────────────────────────────
     {
         "phrase": "Good morning Marimba",
         "expected_action_type": None,
-        "expected_fields": {},
         "description": "Greeting — no action should be triggered",
-    },
-    {
-        "phrase": "How many classes do I have today?",
-        "expected_action_type": None,
-        "expected_fields": {},
-        "description": "Information question — should answer with text only",
     },
     {
         "phrase": "What is the capital of France?",
         "expected_action_type": None,
-        "expected_fields": {},
         "description": "Off-topic question — definitely no UI action",
+    },
+    # ── FACT ACCURACY — the regression class these evals were blind to ────
+    # These assert the SPOKEN reply, not just the action. They would have
+    # caught the "7B at 10:50am" hallucination.
+    {
+        "phrase": "When is my next class with 7B?",
+        "expected_action_type": None,
+        "response_contains": ["11:30"],
+        "response_excludes": ["10:50"],
+        "description": "7B (Day 4) meets at 11:30am — must NOT say 10:50am",
+    },
+    {
+        "phrase": "What time do I have 7B tomorrow?",
+        "expected_action_type": None,
+        "response_contains": ["11:30"],
+        "response_excludes": ["10:50"],
+        "description": "Tomorrow (Day 4) 7B is 11:30am — direct time question",
+    },
+    {
+        "phrase": "Which groups do I teach tomorrow?",
+        "expected_action_type": None,
+        "response_contains": ["10A1", "6B2", "7B"],
+        "description": "Tomorrow = Day 4: 10A1, 6B2, 7B (homeroom 9A2 optional)",
+    },
+    {
+        "phrase": "What time is my last class today?",
+        "expected_action_type": None,
+        "response_contains": ["10:10"],
+        "response_excludes": ["11:30am - 12:50pm"],
+        "description": "Today = Day 3, last class is 8A1 at 10:10am",
+    },
+    {
+        "phrase": "Do I have homeroom tomorrow?",
+        "expected_action_type": None,
+        "response_contains": ["7:30"],
+        "description": "Day 4 has homeroom 9A2 at 7:30am — must confirm with time",
+    },
+    # ── Honesty about missing data (the 7B/Figma hallucination) ───────────
+    {
+        "phrase": "What did I do in my last class with 7B?",
+        "expected_action_type": None,
+        "response_contains_any": [
+            "no record", "haven't logged", "don't have", "nothing logged",
+            "no session", "not logged", "haven't got", "no log",
+        ],
+        "description": "No 7B session is logged — must admit it, never invent a lesson",
     },
 ]
 
@@ -217,6 +249,7 @@ class EvalResult:
         case: dict,
         actual_action_type: str | None,
         actual_action: dict | None,
+        response_text: str,
         raw_json: str,
         passed: bool,
         failure_reason: str = "",
@@ -224,6 +257,7 @@ class EvalResult:
         self.case = case
         self.actual_action_type = actual_action_type
         self.actual_action = actual_action
+        self.response_text = response_text
         self.raw_json = raw_json
         self.passed = passed
         self.failure_reason = failure_reason
@@ -241,54 +275,58 @@ async def run_single_eval(case: dict) -> EvalResult:
             case=case,
             actual_action_type=None,
             actual_action=None,
+            response_text="",
             raw_json="(no response from Mistral)",
             passed=False,
             failure_reason="Mistral returned None — check API key",
         )
 
     action = result.get("action")
+    response_text = result.get("response", "") or ""
     raw_json = result.get("raw_json", "{}")
     actual_type = action.get("type") if action else None
 
-    # Check action type
-    if actual_type != case["expected_action_type"]:
+    def fail(reason: str) -> EvalResult:
         return EvalResult(
             case=case,
             actual_action_type=actual_type,
             actual_action=action,
+            response_text=response_text,
             raw_json=raw_json,
             passed=False,
-            failure_reason=f"Expected action '{case['expected_action_type']}', got '{actual_type}'",
+            failure_reason=reason,
         )
 
-    # Check expected fields (if any)
+    # 1. Action type
+    if actual_type != case["expected_action_type"]:
+        return fail(f"Expected action '{case['expected_action_type']}', got '{actual_type}'")
+
+    # 2. Action fields (if any)
     for field, expected_value in case.get("expected_fields", {}).items():
         actual_value = action.get(field) if action else None
-        # Case-insensitive comparison for group names
         if isinstance(expected_value, str) and isinstance(actual_value, str):
             if actual_value.upper() != expected_value.upper():
-                return EvalResult(
-                    case=case,
-                    actual_action_type=actual_type,
-                    actual_action=action,
-                    raw_json=raw_json,
-                    passed=False,
-                    failure_reason=f"Field '{field}': expected '{expected_value}', got '{actual_value}'",
-                )
+                return fail(f"Field '{field}': expected '{expected_value}', got '{actual_value}'")
         elif actual_value != expected_value:
-            return EvalResult(
-                case=case,
-                actual_action_type=actual_type,
-                actual_action=action,
-                raw_json=raw_json,
-                passed=False,
-                failure_reason=f"Field '{field}': expected '{expected_value}', got '{actual_value}'",
-            )
+            return fail(f"Field '{field}': expected '{expected_value}', got '{actual_value}'")
+
+    # 3. Fact accuracy — the spoken reply must contain / exclude substrings
+    lowered = response_text.lower()
+    for needle in case.get("response_contains", []):
+        if needle.lower() not in lowered:
+            return fail(f"Reply missing required text '{needle}' — got: {response_text!r}")
+    for forbidden in case.get("response_excludes", []):
+        if forbidden.lower() in lowered:
+            return fail(f"Reply contains forbidden text '{forbidden}' — got: {response_text!r}")
+    any_of = case.get("response_contains_any", [])
+    if any_of and not any(opt.lower() in lowered for opt in any_of):
+        return fail(f"Reply missing any of {any_of} — got: {response_text!r}")
 
     return EvalResult(
         case=case,
         actual_action_type=actual_type,
         actual_action=action,
+        response_text=response_text,
         raw_json=raw_json,
         passed=True,
     )
@@ -299,7 +337,9 @@ async def run_all_evals(verbose: bool = False) -> None:
     print("\n" + "=" * 70)
     print("🧪 MARIMBA VOICE EVALS")
     print("=" * 70)
-    print(f"Running {len(EVAL_CASES)} test cases against Mistral Large...\n")
+    print(f"Running {len(EVAL_CASES)} test cases against Mistral Large...")
+    print(f"(context pinned to schedule day {PINNED_SCHEDULE_DAY}, "
+          f"production _build_voice_context path)\n")
 
     results: list[EvalResult] = []
 
@@ -315,7 +355,7 @@ async def run_all_evals(verbose: bool = False) -> None:
             print(f"❌ FAIL — {eval_result.failure_reason}")
 
         if verbose:
-            print(f"         Raw JSON: {eval_result.raw_json[:200]}")
+            print(f"         Reply: {eval_result.response_text!r}")
             print()
 
     # ── Summary ───────────────────────────────────────────────────────────
@@ -335,22 +375,7 @@ async def run_all_evals(verbose: bool = False) -> None:
                 print(f'  • "{r.case["phrase"]}"')
                 print(f"    {r.case['description']}")
                 print(f"    Reason: {r.failure_reason}")
-                if r.actual_action:
-                    print(f"    Got: {json.dumps(r.actual_action)}")
                 print()
-
-    # Accuracy by action type
-    action_types = set(c["expected_action_type"] for c in EVAL_CASES)
-    print("\n📈 ACCURACY BY ACTION TYPE:")
-    for action_type in sorted(action_types, key=lambda x: x or "zzz"):
-        type_results = [
-            r for r in results if r.case["expected_action_type"] == action_type
-        ]
-        type_passed = sum(1 for r in type_results if r.passed)
-        type_total = len(type_results)
-        label = action_type or "no_action (conversation)"
-        bar = "█" * type_passed + "░" * (type_total - type_passed)
-        print(f"  {label:30s} {bar}  {type_passed}/{type_total}")
 
     print()
 

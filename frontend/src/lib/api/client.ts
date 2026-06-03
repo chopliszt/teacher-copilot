@@ -450,11 +450,24 @@ export async function recordPriorityFeedback(payload: {
 // ── Voice ────────────────────────────────────────────────────────────────────
 
 export const VoiceActionSchema = z.object({
-  type: z.enum(['open_class', 'add_task', 'open_priority', 'close_all', 'start_meeting_recording']),
+  type: z.enum([
+    'open_class',
+    'add_task',
+    'open_priority',
+    'close_all',
+    'start_meeting_recording',
+    'complete_task',
+    'view_schedule_day',
+    'open_lesson_plan',
+    'log_session',
+  ]),
   group: z.string().optional(),
   title: z.string().optional(),
   priority: z.enum(['high', 'medium', 'low']).optional(),
   id: z.string().optional(),
+  offset: z.number().optional(),      // view_schedule_day: 0=today, 1=tomorrow, -1=yesterday
+  notes: z.string().optional(),       // log_session
+  what_worked: z.string().optional(), // log_session
 });
 
 export const VoiceResponseSchema = z.object({

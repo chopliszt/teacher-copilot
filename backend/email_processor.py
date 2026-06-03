@@ -104,6 +104,10 @@ async def process_batch(
 
     emails_saved  = 0
     absences_saved = 0
+    # Gmail message ids of absence emails in this batch. They're pure FYI and
+    # already captured in the app, so the caller marks them read in Gmail to
+    # keep the teacher's unread count honest (see _run_gmail_sync).
+    absence_ids: list[str] = []
     seeded_recipients: set[str] = set()  # deduplicate within this batch
 
     for email in emails:
@@ -145,6 +149,9 @@ async def process_batch(
                         ))
 
         elif category == "absence":
+            # Mark read in Gmail regardless of whether it's new to the DB —
+            # it's freshly fetched and needs no action either way.
+            absence_ids.append(email.id)
             if not db.get(AbsenceRecord, email.id):
                 db.add(AbsenceRecord(
                     id=email.id,
@@ -164,4 +171,5 @@ async def process_batch(
         "emails_processed": len(emails),
         "emails_saved": emails_saved,
         "absences_saved": absences_saved,
+        "absence_ids": absence_ids,
     }

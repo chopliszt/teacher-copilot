@@ -244,7 +244,7 @@ export function LessonPlanDrawer({ group, initialTab = 'plan', onClose }: Lesson
   }
 
   async function handleCopyAsPrompt() {
-    if (!latestLessonText || !snapshot) return;
+    if (!group || !latestLessonText || !snapshot) return;
     const promptText = buildExternalPrompt({
       group,
       snapshot,

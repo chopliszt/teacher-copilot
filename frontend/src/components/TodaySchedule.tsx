@@ -22,9 +22,10 @@ interface BriefingPanelProps {
   absentStudents: Absence[];
   disruptions: ClassDisruption[];
   onClose: () => void;
+  autoOpenPlanNonce?: number;   // voice "plan the lesson for X" — opens the drawer
 }
 
-function BriefingPanel({ period, absentStudents, disruptions, onClose }: BriefingPanelProps) {
+function BriefingPanel({ period, absentStudents, disruptions, onClose, autoOpenPlanNonce }: BriefingPanelProps) {
   // Session log state
   const { data: lastSession, isLoading: sessionLoading } = useLastSession(period.group);
   const logSession = useLogSession(period.group);
@@ -40,6 +41,14 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose }: Briefin
   // Lesson plan drawer state — null = closed, group string = open for that group
   const [planLessonGroup, setPlanLessonGroup] = useState<string | null>(null);
   const [planInitialTab, setPlanInitialTab] = useState<'plan' | 'history'>('plan');
+
+  // Voice-triggered: when the nonce changes, open this group's lesson-plan drawer.
+  useEffect(() => {
+    if (autoOpenPlanNonce) {
+      setPlanInitialTab('plan');
+      setPlanLessonGroup(period.group);
+    }
+  }, [autoOpenPlanNonce, period.group]);
 
   // Expandable flag list — hidden by default so the panel stays tidy when
   // there are many flagged students (e.g. 7B has 5).
@@ -304,9 +313,11 @@ function PeriodChip({ period, isActive, absenceCount, hasDisruption, onClick }: 
 interface TodayScheduleProps {
   openGroup?: string | null;       // voice-triggered: open this group's briefing
   closeAllCounter?: number;        // increments on close_all action
+  peekRequest?: { offset: number; nonce: number } | null;   // voice "show tomorrow"
+  openLessonPlan?: { group: string; nonce: number } | null; // voice "plan lesson for X"
 }
 
-export function TodaySchedule({ openGroup, closeAllCounter = 0 }: TodayScheduleProps) {
+export function TodaySchedule({ openGroup, closeAllCounter = 0, peekRequest, openLessonPlan }: TodayScheduleProps) {
   const { data: schedule, isLoading } = useSchedule();
   const { data: absences = [] } = useAbsences();
   const { data: weeklySchedule } = useWeeklySchedule();
@@ -328,6 +339,23 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0 }: TodayScheduleP
       setPeekOffset(0);
     }
   }, [closeAllCounter]);
+
+  // Voice "show me tomorrow/yesterday/day N" — jump the peek to that offset.
+  useEffect(() => {
+    if (peekRequest) {
+      setPeekOffset(peekRequest.offset);
+      setSelectedGroup(null);
+    }
+  }, [peekRequest?.nonce]);
+
+  // Voice "plan the lesson for X" — snap to today and select that group so its
+  // BriefingPanel mounts; the panel then auto-opens the lesson-plan drawer.
+  useEffect(() => {
+    if (openLessonPlan) {
+      setPeekOffset(0);
+      setSelectedGroup(openLessonPlan.group);
+    }
+  }, [openLessonPlan?.nonce]);
 
   if (isLoading || !schedule) return null;
 
@@ -453,6 +481,9 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0 }: TodayScheduleP
                 groupIsAffected(d, selectedPeriod.group)
               )}
               onClose={() => setSelectedGroup(null)}
+              autoOpenPlanNonce={
+                openLessonPlan?.group === selectedPeriod.group ? openLessonPlan?.nonce : undefined
+              }
             />
           )}
         </>

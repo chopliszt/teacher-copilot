@@ -59,6 +59,11 @@ export default function App() {
   const [closeAllCounter, setCloseAllCounter] = useState(0);
   // Voice trigger for meeting recording — flips to true, MeetingRecorder resets it
   const [voiceStartMeeting, setVoiceStartMeeting] = useState(false);
+  // Voice "show me tomorrow/yesterday" — nonce makes repeated same-offset
+  // requests re-fire the effect that drives TodaySchedule's peek.
+  const [voicePeek, setVoicePeek] = useState<{ offset: number; nonce: number } | null>(null);
+  // Voice "plan the lesson for X" — opens the group's lesson-plan drawer.
+  const [voiceLessonPlan, setVoiceLessonPlan] = useState<{ group: string; nonce: number } | null>(null);
 
   const handleVoiceAction = useCallback((action: VoiceAction) => {
     if (action.type === 'open_class' && action.group) {
@@ -81,8 +86,21 @@ export default function App() {
       setTimeout(() => {
         document.getElementById('meeting-notes')?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
+    } else if (action.type === 'view_schedule_day' && typeof action.offset === 'number') {
+      setVoicePeek({ offset: action.offset, nonce: Date.now() });
+      setTimeout(() => {
+        document.getElementById('today-schedule')?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    } else if (action.type === 'open_lesson_plan' && action.group) {
+      // Open the group's briefing first, then signal its lesson-plan drawer.
+      setVoiceOpenGroup(action.group);
+      setVoiceLessonPlan({ group: action.group, nonce: Date.now() });
+      setTimeout(() => {
+        document.getElementById('today-schedule')?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     }
-    // add_task: backend already saved it; useVoice invalidates queries automatically
+    // add_task / complete_task / log_session: backend already persisted them;
+    // useVoice invalidates the affected queries automatically.
   }, []);
 
   const [meetingResponse, setMeetingResponse] = useState<string | null>(null);
@@ -120,7 +138,12 @@ export default function App() {
       <main className="max-w-4xl mx-auto px-4 py-10 sm:px-6 lg:px-8">
         <MarimbaGreeting priorityCount={priorities.length} />
         <div id="today-schedule">
-          <TodaySchedule openGroup={voiceOpenGroup} closeAllCounter={closeAllCounter} />
+          <TodaySchedule
+            openGroup={voiceOpenGroup}
+            closeAllCounter={closeAllCounter}
+            peekRequest={voicePeek}
+            openLessonPlan={voiceLessonPlan}
+          />
         </div>
         <FridayBanner hasWeeklyData={hasWeeklyData} weekLabel={weekLabel} />
         <div id="priorities-section">

@@ -76,6 +76,24 @@ def _write_sync_state(status: str, emails_found: int) -> None:
 
 # ── Core Gmail sync logic (shared by the endpoint and the scheduler) ─────────
 
+def _mark_gmail_read(message_ids: List[str]) -> None:
+    """
+    Best-effort: clear the UNREAD flag in Gmail for emails the teacher has
+    already handled in the app (absences on sync, action emails on dismiss).
+
+    Never raises — a Gmail hiccup must not fail the sync or the dismiss that
+    the teacher just performed. The emails stay in the inbox either way.
+    """
+    ids = [m for m in message_ids if m]
+    if not ids:
+        return
+    try:
+        from connectors.gmail import mark_emails_read
+        mark_emails_read(ids)
+    except Exception as e:
+        print(f"[Gmail] Could not mark {len(ids)} email(s) read: {e}")
+
+
 async def _run_gmail_sync(db: Session) -> Dict[str, Any]:
     from connectors.gmail import fetch_unread_emails, is_configured, _get_gmail_service
 
@@ -104,6 +122,10 @@ async def _run_gmail_sync(db: Session) -> Dict[str, Any]:
     else:
         batch = EmailBatch(emails=fetched_emails)
         result = await process_batch(batch, db)
+        # Absence emails are pure FYI and already captured in the app. Clear
+        # their unread flag in Gmail so they stop adding to the teacher's
+        # unread count — they stay in the inbox, just no longer bold.
+        _mark_gmail_read(result.get("absence_ids") or [])
 
     _write_sync_state(result.get("status", "success"), result.get("emails_processed", 0))
     return result
@@ -833,6 +855,10 @@ async def dismiss_email(email_id: str, db: Session = Depends(get_db)) -> Dict[st
         raise HTTPException(status_code=404, detail="Email not found")
     record.dismissed_at = datetime.now(timezone.utc).isoformat()
     db.commit()
+    # Done in the app → done in Gmail: clear the unread flag so the teacher
+    # doesn't have to handle the same email twice. (email_id IS the Gmail
+    # message id.) Non-destructive — the email stays in the inbox.
+    _mark_gmail_read([email_id])
     return {"deleted": True}
 
 
@@ -847,9 +873,11 @@ async def dismiss_all_emails(db: Session = Depends(get_db)) -> Dict[str, Any]:
         )
     ).scalars().all()
     now = datetime.now(timezone.utc).isoformat()
+    dismissed_ids = [r.id for r in records]
     for r in records:
         r.dismissed_at = now
     db.commit()
+    _mark_gmail_read(dismissed_ids)
     return {"deleted": True}
 
 
@@ -1925,48 +1953,42 @@ def _build_voice_context(
     all_tasks: List[Dict[str, Any]],
     weekly_data: Optional[Dict[str, Any]],
     session_notes: Optional[Dict[str, Dict[str, str]]] = None,
+    all_groups: Optional[List[str]] = None,
 ) -> str:
-    """Build a concise plain-text context summary for the voice Mistral call."""
-    current_day = get_current_schedule_day()
+    """Build a concise plain-text context summary for the voice Mistral call.
 
-    today_periods: List[Dict[str, Any]] = []
-    for day_sched in schedule_data.get("classes", []):
-        if day_sched.get("day") == current_day:
-            today_periods = day_sched.get("periods", [])
-            break
+    Uses the SAME full 6-day schedule block as the priority and task-chat
+    prompts (``format_schedule_block``) rather than injecting only today's
+    periods. Injecting today alone left Marimba blind to tomorrow's class
+    times — she would confabulate a plausible-but-wrong time (e.g. reporting
+    7B at 10:50am when it actually meets at 11:30am). The block renders all
+    six rotation days with TODAY/NEXT markers, plus today's meetings and
+    disruptions, so she never has to guess.
+    """
+    from context_builder import format_schedule_block
 
-    homeroom = schedule_data.get("homeroom", {})
-    classes_parts = []
-    if homeroom:
-        classes_parts.append(
-            f"{homeroom.get('group')} (homeroom) at {homeroom.get('time')}"
-        )
-    for p in today_periods:
-        classes_parts.append(f"{p.get('group')} at {p.get('time')}")
-    classes_str = ", ".join(classes_parts) or "no classes today"
+    schedule_block = format_schedule_block(
+        schedule_data, _get_current_time(), weekly_data
+    )
 
+    # Each task carries its id in brackets so Marimba can reference it with
+    # the complete_task action ("mark X done"). The id encodes the source:
+    # "user_…" is a teacher task, anything else is an action-required email.
     tasks_str = (
-        "\n".join(f"- {t['title']} ({t['priority']})" for t in all_tasks[:8])
+        "\n".join(
+            f"- {t['title']} ({t['priority']}) [id: {t['id']}]" for t in all_tasks[:8]
+        )
         or "no tasks"
     )
 
-    meetings_str = ""
-    if weekly_data:
-        meetings = [
-            m
-            for m in weekly_data.get("meetings", [])
-            if m.get("schedule_day") == current_day
-        ]
-        if meetings:
-            meetings_str = "\nToday's meetings: " + ", ".join(
-                f"{m.get('description')} at {m.get('time')}" for m in meetings
-            )
-
-    # Include last-session notes for today's classes so Marimba can answer
-    # questions like "what did we do last time with 9A1?"
+    # Last-session notes so Marimba can answer "what did we do last time with
+    # 9A1?". Crucially, we ALSO list the groups that have NO log yet, and tell
+    # Marimba to treat that as "no record" — never invent a lesson. LLMs are
+    # bad at noticing absence ("9A1 isn't in the list, so I don't know"), so we
+    # make the absence explicit rather than relying on omission.
     sessions_str = ""
+    logged = []
     if session_notes:
-        lines = []
         for group, notes in session_notes.items():
             note = notes.get("notes", "").strip()
             what_worked = notes.get("what_worked", "").strip()
@@ -1974,15 +1996,85 @@ def _build_voice_context(
                 entry = f"- {group}: \"{note}\""
                 if what_worked:
                     entry += f" (what worked: {what_worked})"
-                lines.append(entry)
-        if lines:
-            sessions_str = "\n\nLast session notes per class:\n" + "\n".join(lines)
+                logged.append((group, entry))
+
+    logged_groups = {g for g, _ in logged}
+    unlogged = [g for g in (all_groups or []) if g not in logged_groups]
+
+    if logged or unlogged:
+        parts = ["\n\nCLASS SESSION LOG (what was last taught):"]
+        if logged:
+            parts.append("\n".join(entry for _, entry in logged))
+        else:
+            parts.append("(no class sessions have been logged yet)")
+        if unlogged:
+            parts.append(
+                "No session logged yet for: "
+                + ", ".join(unlogged)
+                + ". If asked what happened in one of these, say you have no "
+                "record of it and offer to log it — do NOT invent a lesson."
+            )
+        sessions_str = "\n".join(parts)
 
     return (
-        f"Schedule day {current_day}. Today's classes: {classes_str}.{meetings_str}\n\n"
+        f"{schedule_block}\n\n"
         f"Pending tasks:\n{tasks_str}"
         f"{sessions_str}"
     )
+
+
+def _build_voice_history(
+    db: Session,
+    window_minutes: int = 10,
+    max_turns: int = 3,
+) -> List[Dict[str, str]]:
+    """Reconstruct the last few voice turns as chat messages for short-term memory.
+
+    The voice endpoint is otherwise stateless — each utterance is handled fresh.
+    To make follow-ups like "yes, log it" resolve, we replay the recent
+    conversation: each past turn becomes a user message (what the teacher said)
+    + an assistant message (what Marimba replied). We only include turns from the
+    last ``window_minutes`` so a conversation from hours ago doesn't bleed in —
+    a burst of voice activity is one conversation; a gap ends it.
+
+    Returns messages in chronological order, ready to slot between the system
+    prompt and the current user message.
+    """
+    from datetime import timedelta
+
+    from database import VoiceLogRecord
+    from sqlalchemy import desc as sql_desc, select
+
+    rows = (
+        db.execute(
+            select(VoiceLogRecord)
+            .order_by(sql_desc(VoiceLogRecord.created_at))
+            .limit(max_turns)
+        )
+        .scalars()
+        .all()
+    )
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+    messages: List[Dict[str, str]] = []
+    for row in reversed(rows):  # chronological (oldest of the window first)
+        try:
+            created = datetime.fromisoformat(row.created_at)
+        except (ValueError, TypeError):
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if created < cutoff:
+            continue
+        if row.transcript:
+            messages.append({"role": "user", "content": row.transcript})
+            try:
+                reply = (json.loads(row.mistral_response) or {}).get("response", "")
+            except (json.JSONDecodeError, TypeError):
+                reply = ""
+            if reply:
+                messages.append({"role": "assistant", "content": reply})
+    return messages
 
 
 @app.post("/api/voice")
@@ -2049,18 +2141,28 @@ async def handle_voice(
         ]
 
         # Gather last-session notes for every class in today's schedule so Marimba
-        # can answer questions about what happened in previous lessons.
+        # can answer questions about what happened in previous lessons —
+        # for ANY group, not just today's. The teacher asks about classes on
+        # other days too ("what did I do last with 7B?"). Gathering only
+        # today's groups left those queries with no data, so Marimba would
+        # confabulate a lesson. We collect every group the teacher teaches
+        # (homeroom + all six rotation days) and pull each one's latest note.
         from database import ClassSessionRecord
         from sqlalchemy import desc as sql_desc
 
-        today_groups: List[str] = []
+        all_groups: List[str] = []
+        homeroom_group = (schedule_data.get("homeroom") or {}).get("group")
+        if homeroom_group:
+            all_groups.append(homeroom_group)
         for day_sched in schedule_data.get("classes", []):
-            if day_sched.get("day") == get_current_schedule_day():
-                today_groups = [p["group"] for p in day_sched.get("periods", [])]
-                break
+            for p in day_sched.get("periods", []):
+                if p.get("group"):
+                    all_groups.append(p["group"])
+        # Dedupe while preserving order
+        all_groups = list(dict.fromkeys(all_groups))
 
         session_notes: Dict[str, Dict[str, str]] = {}
-        for group in today_groups:
+        for group in all_groups:
             last = (
                 db.execute(
                     select(ClassSessionRecord)
@@ -2077,9 +2179,15 @@ async def handle_voice(
                     "what_worked": last.what_worked or "",
                 }
 
-        context = _build_voice_context(schedule_data, all_tasks, weekly_data, session_notes)
+        context = _build_voice_context(
+            schedule_data, all_tasks, weekly_data, session_notes, all_groups
+        )
 
-        mistral_result = await call_voice_mistral(transcript, context)
+        # Short-term memory: replay the last few minutes of voice turns so
+        # follow-ups ("yes, log it") keep the group/intent from the prior turn.
+        history = _build_voice_history(db)
+
+        mistral_result = await call_voice_mistral(transcript, context, history=history)
 
         if not mistral_result:
             return {
@@ -2107,6 +2215,71 @@ async def handle_voice(
                 )
                 db.add(record)
                 db.commit()
+
+        # complete_task: clear a teacher task or dismiss an action-required
+        # email. The id was shown to Marimba in the context's task list; we
+        # route by prefix ("user_…" = teacher task, else = email). If the id
+        # doesn't match, fall back to a title substring match so a slightly
+        # mis-copied id still resolves the right item.
+        elif action and action.get("type") == "complete_task":
+            target_id = (action.get("id") or "").strip()
+            known_ids = {t["id"] for t in all_tasks}
+            if target_id not in known_ids:
+                title_q = (action.get("title") or "").strip().lower()
+                if title_q:
+                    for t in all_tasks:
+                        if title_q in t["title"].lower():
+                            target_id = t["id"]
+                            break
+            if target_id.startswith("user_"):
+                rec = db.get(UserTaskRecord, target_id[len("user_"):])
+                if rec:
+                    db.delete(rec)
+                    db.commit()
+            elif target_id:
+                rec = db.get(ImportantEmailRecord, target_id)
+                if rec and rec.dismissed_at is None:
+                    rec.dismissed_at = datetime.now(timezone.utc).isoformat()
+                    db.commit()
+                    # Dismissing by voice clears the unread flag in Gmail too,
+                    # same as the in-app dismiss button.
+                    _mark_gmail_read([target_id])
+
+        # log_session: upsert today's session note for a class — same keying
+        # ("{group}_{date}_{schedule_day}") as POST /api/class/{group}/session,
+        # so logging by voice and by tapping write to the same row.
+        elif action and action.get("type") == "log_session":
+            from datetime import date as _date
+
+            group = (action.get("group") or "").strip()
+            notes = (action.get("notes") or "").strip()
+            what_worked = (action.get("what_worked") or "").strip() or None
+            if group and notes:
+                today = _date.today().isoformat()
+                sday = get_current_schedule_day()
+                record_id = f"{group}_{today}_{sday}"
+                now_str = datetime.now(timezone.utc).isoformat()
+                existing = db.get(ClassSessionRecord, record_id)
+                if existing:
+                    existing.notes = notes
+                    existing.what_worked = what_worked
+                    existing.created_at = now_str
+                else:
+                    db.add(
+                        ClassSessionRecord(
+                            id=record_id,
+                            group=group,
+                            schedule_day=sday,
+                            date=today,
+                            notes=notes,
+                            what_worked=what_worked,
+                            created_at=now_str,
+                        )
+                    )
+                db.commit()
+
+        # view_schedule_day and open_lesson_plan are UI-only — no DB effect
+        # here; the frontend handles them from the returned action.
 
         # Log the interaction for Evals
         import uuid

@@ -228,6 +228,42 @@ def fetch_unread_emails() -> List[IncomingEmail]:
         return []
 
 
+def mark_emails_read(message_ids: List[str]) -> int:
+    """
+    Clear the UNREAD flag on the given messages so they stop showing as bold /
+    counting toward the teacher's unread total in Gmail.
+
+    Non-destructive on purpose: we ONLY remove the system 'UNREAD' label. The
+    emails stay in the inbox with every other label intact (including the amber
+    'marimba-processed' tag), so nothing disappears and everything Marimba has
+    touched is still findable. This is the "turn down the volume, don't delete"
+    move — used for absence emails on sync and for action emails the moment the
+    teacher dismisses them in the app.
+
+    Best-effort: returns the count submitted, or 0 if Gmail isn't configured or
+    the call failed. Never raises — marking-read must never break the action
+    (sync or dismiss) that triggered it.
+    """
+    ids = [m for m in message_ids if m]
+    if not ids:
+        return 0
+
+    service = _get_gmail_service()
+    if not service:
+        return 0
+
+    try:
+        service.users().messages().batchModify(
+            userId="me",
+            body={"ids": ids, "removeLabelIds": ["UNREAD"]},
+        ).execute()
+        print(f"[Gmail Connector] Marked {len(ids)} email(s) as read.")
+        return len(ids)
+    except Exception as error:
+        print(f"[Gmail Connector] Error marking {len(ids)} email(s) read: {error}")
+        return 0
+
+
 def send_email(to: str, subject: str, body: str, cc: str | None = None) -> bool:
     """
     Send an email from the authenticated Gmail account.

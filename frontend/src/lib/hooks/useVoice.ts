@@ -72,12 +72,22 @@ export function useVoice({ onAction }: UseVoiceOptions = {}): UseVoiceReturn {
         // Always show the text response — audio is a bonus, not required
         showResponse(result.text);
 
-        // Handle action — add_task was already saved by backend, just refresh queries
+        // Handle action — server-side effects (add_task, complete_task,
+        // log_session) were already persisted by the backend, so we just
+        // refresh the affected React Query caches. UI-only actions
+        // (open_class, view_schedule_day, …) are dispatched via onAction.
         if (result.action) {
           console.log('[Marimba] Action:', result.action);
-          if (result.action.type === 'add_task') {
+          const { type, group } = result.action;
+          if (type === 'add_task') {
             queryClient.invalidateQueries({ queryKey: ['user-tasks'] });
             queryClient.invalidateQueries({ queryKey: ['priorities'] });
+          } else if (type === 'complete_task') {
+            queryClient.invalidateQueries({ queryKey: ['user-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['important-emails'] });
+            queryClient.invalidateQueries({ queryKey: ['priorities'] });
+          } else if (type === 'log_session' && group) {
+            queryClient.invalidateQueries({ queryKey: ['last-session', group] });
           }
           onAction?.(result.action);
         }

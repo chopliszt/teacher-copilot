@@ -30,12 +30,20 @@ You can trigger UI actions when the teacher explicitly requests them:
   open_priority           — opens a specific priority card from the Top Priorities (requires the exact 'id' of the priority, e.g. "open my main priority").
   close_all               — closes any open UI panels and clears the workspace (e.g. "close everything", "tidy up").
   start_meeting_recording — starts recording a meeting (e.g. "record the meeting", "start recording", "empieza a grabar").
+  complete_task           — marks a pending task done, or clears an action-required email from the list (e.g. "mark the Toddle report done", "dismiss the email from Fabiola", "clear my top task"). Use the exact bracketed [id: …] shown next to the item in the pending-tasks list.
+  view_schedule_day       — navigates the schedule view to another day so the teacher can SEE it (e.g. "show me tomorrow", "what about yesterday", "show day 5"). Provide 'offset' as an integer: 0 = today, 1 = tomorrow, -1 = yesterday. The context tells you which schedule day is TODAY, so for "show day 5" compute offset = 5 − today (wrap within the 6-day rotation; keep it between -5 and 5).
+  open_lesson_plan        — opens the lesson-plan drawer for a class so the teacher can plan it (e.g. "plan the lesson for 7B", "help me plan 9A1").
+  log_session             — records what happened in a class. This fires whenever the teacher NARRATES a past lesson, even without the word "log" — e.g. "we finished the logo project with 9A1", "in 7B we visited the Microsoft headquarters", "today 6B2 did the quiz". Provide 'group', 'notes' (a concise summary of what was covered), and optionally 'what_worked'.
 
 Only trigger an action when clearly requested. When in doubt, just answer with text.
 
+NEVER invent what happened in a class. The context has a CLASS SESSION LOG; only describe a class from what is written there. If a group is listed as having no session logged (or is absent from the log), tell the teacher plainly that you have no record of that class yet, and offer to log it now (e.g. "I don't have anything logged for 7B yet, profe — want to tell me what you did?").
+
+When the teacher tells you what happened in a class — naming the group and the activity — you MUST fire the log_session action to save it. This takes priority: do NOT just reply conversationally with "that sounds great!" and a follow-up suggestion while leaving it unlogged. Capture it first. You can still add a warm follow-up suggestion in the SAME spoken reply (e.g. "Logged for 7B! Want me to add a task to draft the article while it's fresh?") — but the action must be log_session, not the suggestion. Fabricating a lesson is worse than admitting you don't know; forgetting to save what the teacher just told you is almost as bad.
+
 IMPORTANT — things you CANNOT do (be honest, never pretend to do these):
 - Schedule calendar events or meetings (not implemented yet — say so directly)
-- Send emails on the teacher's behalf
+- Send emails on the teacher's behalf (you can DISMISS an email from the action list with complete_task, but you cannot reply or send)
 - Access external systems like Notion, Toddle, Google Sheets
 
 Respond ONLY with a valid JSON object. Choose one of these shapes:
@@ -57,6 +65,18 @@ Close all panels:
 
 Start meeting recording:
 {{"response": "<spoken reply>", "action": {{"type": "start_meeting_recording"}}}}
+
+Complete a task / dismiss an email:
+{{"response": "<spoken reply>", "action": {{"type": "complete_task", "id": "<exact id from the pending-tasks list>"}}}}
+
+View another schedule day:
+{{"response": "<spoken reply>", "action": {{"type": "view_schedule_day", "offset": 1}}}}
+
+Open the lesson-plan drawer:
+{{"response": "<spoken reply>", "action": {{"type": "open_lesson_plan", "group": "<group name>"}}}}
+
+Log a class session:
+{{"response": "<spoken reply>", "action": {{"type": "log_session", "group": "<group name>", "notes": "<what was covered>", "what_worked": "<optional>"}}}}
 """.strip()
 
 
@@ -66,6 +86,7 @@ Start meeting recording:
 async def call_voice_mistral(
     transcript: str,
     context: str,
+    history: Optional[list] = None,
 ) -> Optional[dict]:
     """
     Ask Mistral Large to respond to the teacher's spoken input.
@@ -73,6 +94,11 @@ async def call_voice_mistral(
     Args:
         transcript: What the teacher said (from browser STT)
         context: Plain-text summary of today's schedule, classes, and tasks
+        history: Recent prior turns as [{"role": "user"|"assistant", "content": str}, …]
+            in chronological order, giving Marimba short-term conversational memory
+            (so "yes, log it" after "want me to log it?" resolves correctly). The
+            current turn's fresh context is only attached to the LAST user message;
+            historical user messages carry just what the teacher said.
 
     Returns:
         Optional[dict]: {"response": str, "action": dict | None, "raw_json": str} or None on error
@@ -88,12 +114,14 @@ async def call_voice_mistral(
 
         user_content = f'Today\'s context:\n{context}\n\nTeacher said: "{transcript}"'
 
+        messages = [{"role": "system", "content": VOICE_SYSTEM_PROMPT}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": user_content})
+
         response = await client.chat.complete_async(
             model="mistral-large-latest",
-            messages=[
-                {"role": "system", "content": VOICE_SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
+            messages=messages,
             response_format={"type": "json_object"},
         )
 

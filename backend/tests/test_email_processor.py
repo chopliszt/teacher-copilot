@@ -111,6 +111,15 @@ class TestCategoryRouting:
         assert result["emails_saved"] == 2    # weekly_schedule + action_required
         assert result["absences_saved"] == 1
 
+    def test_absence_ids_returned_for_mark_read(self, db_session, sample_batch, monkeypatch):
+        """Absence emails are surfaced so the sync can clear their unread flag
+        in Gmail — only absences, never action_required/weekly/ignore."""
+        monkeypatch.setattr("email_processor.triage_batch", _mock_triage(FULL_TRIAGE))
+        result = asyncio.get_event_loop().run_until_complete(
+            process_batch(sample_batch, db_session)
+        )
+        assert result["absence_ids"] == ["msg_absence_001"]
+
 
 # ── Idempotency ───────────────────────────────────────────────────────────────
 
