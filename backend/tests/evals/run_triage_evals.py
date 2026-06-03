@@ -97,7 +97,110 @@ EVAL_CASES: list[dict] = [
         "expected_category": "action_required",
         "description": "Cover request from the substitute coordinator, phrased as a question.",
     },
-    # ── PRECISION TRAP — all-staff bulletin question (broadcast) ──────────
+    # ── RECALL + PRECISION PAIR — director broadcasts, same sender ────────
+    # These two are a contrasting pair drawn from REAL email. Both are from
+    # the PYP director and both went to all staff. The discriminator is NOT
+    # the sender — it's whether the broadcast hands each teacher a concrete,
+    # dated task. The first was missed in production; the second must stay
+    # ignored so the fix doesn't just flag everything Kimberly sends.
+    {
+        "id": "eval_director_meeting_broadcast",
+        "subject": "Reuniones de seguimiento",
+        "snippet": "Buenos días, compañeros: Me gustaría reunirme con cada uno de ustedes entre el 8 y el 17 de junio. Les agradezco ingresar a mi calendario para reservar un espacio de 40 minutos.",
+        "body": (
+            "Buenos días, compañeros:\n\n"
+            "Me gustaría reunirme con cada uno de ustedes durante el período "
+            "comprendido entre el 8 y el 17 de junio. Les agradezco ingresar a "
+            "mi calendario para reservar un espacio de 40 minutos en el horario "
+            "que mejor les convenga.\n\n"
+            "Durante esta reunión de seguimiento abordaremos seguimiento de "
+            "estudiantes y familias, retroalimentación de Dirección, y "
+            "necesidades y proyecciones para el próximo semestre."
+        ),
+        "sender": "Kimberly María Fonseca <kimberly.fonseca@goldenvalley.ed.cr>",
+        "to": "Personal Docente <staff@goldenvalley.ed.cr>",
+        "cc": "",
+        "expected_category": "action_required",
+        "description": "Director broadcast, but assigns each teacher a dated concrete task (book a 40-min slot). The real miss.",
+    },
+    {
+        "id": "eval_director_encouragement_broadcast",
+        "subject": "Viralizar lo bueno: multiplicando liderazgos positivos",
+        "snippet": "Estimados docentes: los invito a enfocar nuestras acciones en viralizar lo bueno, reconociendo y reforzando las buenas acciones y liderazgos positivos de los estudiantes.",
+        "body": (
+            "Estimados docentes:\n\n"
+            "En el cierre de este semestre, los invito a enfocar nuestras "
+            "acciones durante las próximas tres semanas en viralizar lo bueno: "
+            "reconocer, visibilizar y reforzar las buenas acciones, actitudes y "
+            "liderazgos positivos de nuestros estudiantes. Les invito a "
+            "intencionar espacios cotidianos de aula para destacar lo bueno."
+        ),
+        "sender": "Kimberly María Fonseca <kimberly.fonseca@goldenvalley.ed.cr>",
+        "to": "Personal Docente <staff@goldenvalley.ed.cr>",
+        "cc": "",
+        "expected_category": "ignore",
+        "description": "Same director, broadcast, but pure encouragement with no concrete deliverable or deadline. Precision guard for the case above.",
+    },
+    # ── RECALL + PRECISION PAIR #2 — gratitude opener, real Kim emails ────
+    # Overfitting guard. BOTH open with a long paragraph of thanks, and the
+    # IGNORE one even contains "cada uno de ustedes" — so neither warmth nor
+    # that phrase can be the trigger. The only difference is whether the body
+    # hands me dated deliverables. Keying on phrasing would fail both.
+    {
+        "id": "eval_kim_cierre_ciclo",
+        "subject": "Cierre de ciclo — fechas y lineamientos",
+        "snippet": "Querido equipo, gracias por su compromiso. A continuación les comparto las fechas para el cierre de ciclo: cierre de unidad en Toddle (08 de junio), cierre de notas (05 de junio), entrega de reportes (16-17 de junio).",
+        "body": (
+            "Querido equipo, quiero comenzar expresando mi agradecimiento "
+            "profundo por el compromiso y la dedicación que han demostrado en "
+            "todo momento. A continuación les comparto las fechas y lineamientos "
+            "importantes para el cierre de ciclo:\n\n"
+            "Cierre de Unidad en Toddle — fecha límite 08 de junio, con las "
+            "reflexiones de estudiantes y docentes completadas.\n"
+            "Cierre y revisión de notas, conducta y comentarios — fecha límite "
+            "05 de junio. Los comentarios deben estar listos para revisión el "
+            "05 de junio.\n"
+            "Revisión de notas con Santiago Montero — del 08 al 12 de junio con "
+            "cita previa.\n"
+            "Perfiles de Salida Grupos B — entrega del 08 al 12 de junio, en la "
+            "carpeta correspondiente.\n"
+            "Entrega de notas y reportes — presencial 16-17 de junio; recuerden "
+            "enviar a las familias el link para que se anoten.\n"
+            "Retiro de pertenencias — todos los estudiantes deben llevarse sus "
+            "pertenencias a más tardar el jueves 11 de junio."
+        ),
+        "sender": "Kimberly María Fonseca <kimberly.fonseca@goldenvalley.ed.cr>",
+        "to": "Personal Docente <staff@goldenvalley.ed.cr>",
+        "cc": "",
+        "expected_category": "action_required",
+        "description": "Long gratitude opener, then a dense list of dated deliverables that are mine to do. Must flag despite the warm tone.",
+    },
+    {
+        "id": "eval_kim_pyp_thankyou",
+        "subject": "Gracias equipo — cierre del proceso PYP",
+        "snippet": "Querido equipo: hoy culminamos un proceso significativo para nuestro programa PYP y quiero agradecerles de corazón a cada uno de ustedes. En aproximadamente un mes contaremos con el informe oficial.",
+        "body": (
+            "Querido equipo: hoy culminamos un proceso sumamente significativo "
+            "para nuestro programa PYP, y quiero detenerme un momento para "
+            "agradecerles de corazón a cada uno de ustedes. Gracias por su "
+            "entrega, su compromiso constante y el cariño que ponen en cada "
+            "detalle de su trabajo. La retroalimentación que recibimos fue muy "
+            "positiva y resaltó que somos una comunidad sólida, un equipo unido "
+            "y profesional. En aproximadamente un mes contaremos con el informe "
+            "oficial. Por ahora, quiero que se queden con esto: me siento "
+            "profundamente orgullosa de ser parte de este equipo. Sigamos "
+            "construyendo juntos. ¡Lo mejor aún está por venir!"
+        ),
+        "sender": "Kimberly María Fonseca <kimberly.fonseca@goldenvalley.ed.cr>",
+        "to": "Personal Docente <staff@goldenvalley.ed.cr>",
+        "cc": "",
+        "expected_category": "ignore",
+        "description": "Pure gratitude/celebration — contains 'cada uno de ustedes' but nothing to deliver. The phrasing-overfit guard.",
+    },
+    # ── RECALL — broadcast form reminder IS a task ────────────────────────
+    # Phrased as a question to all staff, but "complete the end-of-period
+    # form" is a concrete deliverable that falls on me. The old label here
+    # was `ignore` under the blunt "broadcast = not mine" rule we removed.
     {
         "id": "eval_staff_form",
         "subject": "Recordatorio formulario",
@@ -106,8 +209,23 @@ EVAL_CASES: list[dict] = [
         "sender": "Coordinación <coordinacion@goldenvalley.ed.cr>",
         "to": "Personal Docente <staff@goldenvalley.ed.cr>",
         "cc": "",
+        "expected_category": "action_required",
+        "description": "Broadcast reminder to complete a form — a deliverable that's mine, so action_required despite the collective greeting.",
+    },
+    # ── PRECISION TRAP — broadcast question with NO deliverable ────────────
+    # The boundary partner to eval_staff_form: a question to all staff that
+    # asks for nothing concrete back. Guards against flagging every broadcast
+    # question now that some of them (forms) legitimately flag.
+    {
+        "id": "eval_staff_checkin",
+        "subject": "¿Cómo les fue esta semana?",
+        "snippet": "Estimados docentes, ¿cómo se sintieron con el cierre de la semana? Cualquier comentario es bienvenido. Saludos.",
+        "body": "Estimados docentes, ¿cómo se sintieron con el cierre de la semana? Cualquier comentario es bienvenido, pero no es obligatorio. Saludos.",
+        "sender": "Coordinación <coordinacion@goldenvalley.ed.cr>",
+        "to": "Personal Docente <staff@goldenvalley.ed.cr>",
+        "cc": "",
         "expected_category": "ignore",
-        "description": "A question, but broadcast to all staff — not addressed to me.",
+        "description": "Broadcast check-in question, optional and with nothing to deliver — must stay ignore.",
     },
     # ── PRECISION TRAP — Cc-only, question aimed at someone else ──────────
     {

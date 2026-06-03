@@ -33,8 +33,16 @@ Key senders to know:
   - fabiola.jimenez@goldenvalley.ed.cr — substitute coordinator.
     Emails from her about replacing or covering another teacher's class
     are ALWAYS action_required.
-  - carolina.marin@goldenvalley.ed.cr and kimberly.fonseca@goldenvalley.ed.cr
-    — school directors. Direct requests from them are always action_required.
+  - carolina.marin@goldenvalley.ed.cr (secondary director) and
+    kimberly.fonseca@goldenvalley.ed.cr (elementary / PYP director)
+    — school directors. Requests from them are always action_required —
+    INCLUDING a message sent to all staff ("compañeros", "estimados
+    docentes") when it asks each teacher to do something concrete (book a
+    meeting slot, submit grades, fill out a form). A director's broadcast
+    that hands ME an individual task is action_required, not a bulletin.
+    (But a director's broadcast that is only encouragement or a practice to
+    adopt, with no concrete deliverable, is still ignore — see the EXCEPTION
+    block below.)
 
 Your job is to classify each email into exactly one category:
 
@@ -89,7 +97,37 @@ HOW TO DECIDE — addressee first, then ask:
         "staff@...", "todos@...").
       - The greeting or the To line addresses someone else and I'm copied.
 
-  STEP 2 — Only if it IS addressed to me: does it expect something back?
+    EXCEPTION — a broadcast can STILL be action_required. The test is not
+    who it's addressed to, but whether it leaves ME holding a task: something
+    concrete I would have to DO or HAND BACK, often by some date. When a
+    message to many people does that, classify it action_required even though
+    the greeting is collective. Use your judgment — there is NO required
+    wording and the points below are illustrations of the principle, not a
+    checklist that must all match:
+      - A concrete action or deliverable falls on me: reserve a slot, submit
+        grades, fill out a form, sign up, bring/send a document.
+      - It reads as meant for each recipient individually — sometimes through
+        wording like "cada uno de ustedes" or "les agradezco [verbo]", but
+        just as often it simply states a task and a deadline that obviously
+        applies to me, e.g. "las notas deben estar listas antes del viernes".
+        That bare-deadline form is action_required too — don't wait for fancy
+        phrasing.
+      - A date or window is a strong hint, but a real task with no date is
+        still a task.
+    The opposite stays ignore: a broadcast that only invites a mindset,
+    encouragement, or a teaching practice with nothing specific to hand back
+    ("los invito a reconocer lo bueno", "reflexionemos sobre...").
+
+    Two real examples, same sender and the same collective greeting — the
+    difference is the deliverable, not the wording:
+      action_required: "compañeros, me gustaría reunirme con cada uno de
+        ustedes; les agradezco reservar 40 minutos entre el 8 y el 17" — a
+        dated task that's mine to do.
+      ignore: "los invito a viralizar lo bueno y reconocer las buenas
+        acciones de los estudiantes" — encouragement, nothing to deliver.
+
+  STEP 2 — Only if it IS addressed to me (or it's an individual-obligation
+  broadcast per the EXCEPTION above): does it expect something back?
     Either of these counts as a yes:
       - An imperative directed at me (escalar, enviar, confirmar, llenar,
         revisar, responder, adjuntar, coordinar, programar, asistir,

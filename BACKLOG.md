@@ -70,6 +70,22 @@ Ranked by urgency and ADHD value. Work top to bottom. Don't start item N+1 until
 **How it works:** New `create_draft()` in `connectors/gmail.py` using Gmail API's `users.messages.drafts.create` (same MIME envelope as send, different endpoint). New `/api/emails/{id}/save-draft` + `/api/emails/save-draft` endpoints mirroring the send ones. Two buttons in the UI instead of one.
 **Effort:** ~30 minutes
 
+### 9. Triage correction loop — the system learns from misses automatically
+**What:** When triage gets an email wrong, you correct it in one tap and the classifier stops making that mistake — no editing prompts or evals by hand. Two failure modes to cover:
+- **A miss** (important email landed in `ignore`, never surfaced): you mark it "this was important."
+- **A false flag** (noise reached Top 3 / important list): you already have a dismiss path; that dismissal becomes a labeled negative.
+
+**Why this is needed:** Today triage runs **once per email and ignored mail is discarded entirely** — not even stored. So a missed director email (e.g. Kimberly's June meeting request) is unrecoverable *and* unlearnable. The only way to improve is a human editing `email_triage.py` + `run_triage_evals.py` — exactly what this item removes.
+
+**How it works (mirrors the priority ML loop, item 4):**
+- **Recovery first (cheap, do this part early):** persist *every* triaged email with its category for ~14 days in a `triage_log` table (id, subject, sender, to, snippet, category, created_at), instead of dropping `ignore`. Add a lightweight "Recently ignored" view + a "↑ Mark important" button. One tap re-files it into `important_emails` so nothing is ever truly lost.
+- **Learning second:** each correction writes a labeled row to `triage_feedback` (email features + `corrected_category` + the model's original guess). Once ~15–20 corrections accumulate, inject them as **few-shot examples** at the end of `SYSTEM_PROMPT` (positives = "this shape IS action_required", negatives = "this shape is ignore"). The contrasting Kimberly pair is the template: a real correction becomes a permanent guard.
+- **Close the loop with evals:** a small script appends each correction to `run_triage_evals.py` as a new labeled case, so corrections double as regression coverage.
+
+**New tables:** `triage_log` (recovery), `triage_feedback` (learning).
+**Effort:** ~2h for recovery+button, ~3h for the few-shot injection + feedback capture.
+**Note:** Recovery is the ADHD-critical half — "I can always get a missed email back" removes the anxiety of trusting the filter. The learning half is the long-game payoff. Ship recovery first.
+
 ---
 
 ## 🔵 Probably skip (re-evaluate when needed)
