@@ -86,6 +86,13 @@ Ranked by urgency and ADHD value. Work top to bottom. Don't start item N+1 until
 **Effort:** ~2h for recovery+button, ~3h for the few-shot injection + feedback capture.
 **Note:** Recovery is the ADHD-critical half — "I can always get a missed email back" removes the anxiety of trusting the filter. The learning half is the long-game payoff. Ship recovery first.
 
+### 10. Triage escalation — small model asks the large model when unsure
+**What:** Triage stays on Mistral Small by default (fast, cheap, forces explicit prompting). When Small is genuinely unsure about an email, it escalates *that one email* to Mistral Large for a second opinion, instead of guessing.
+**Why:** Best of both — cheap and disciplined on the easy 95%, smart only on the ambiguous slice where a miss is expensive (a director's broadcast that buries an ask under gratitude). Triage is low-volume, so even occasional Large calls cost pennies.
+**How it might work:** Add a `confidence` field to the triage JSON; any email Small marks low-confidence (or marks `ignore` while coming from a key sender — director, Fabiola) gets a single re-check on Large. Cap escalations per batch.
+**Status:** Not needed yet — we're still tuning the Small prompt and it's passing evals. Revisit only if real misses show up that better prompting can't fix. Don't build prematurely.
+**Effort:** ~2 hours.
+
 ---
 
 ## 🔵 Probably skip (re-evaluate when needed)
