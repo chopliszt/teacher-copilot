@@ -108,7 +108,7 @@ async def call_voice_mistral(
         return None
 
     try:
-        from mistralai import Mistral
+        from mistralai.client import Mistral
 
         client = Mistral(api_key=api_key)
 

@@ -38,7 +38,7 @@ async def call_mistral(
         return None
 
     try:
-        from mistralai import Mistral
+        from mistralai.client import Mistral
 
         client = Mistral(api_key=api_key)
         prompt = build_context(

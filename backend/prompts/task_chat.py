@@ -13,7 +13,7 @@ import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 import sys
 from pathlib import Path

@@ -7,12 +7,12 @@ The function triage_batch() is the only thing email_processor.py calls.
 
 import json
 import os
-import re
 from typing import Any
 
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 from preferences import get_ignore_rules, get_personal_context
+from prompts._reasoning import response_to_json_text
 
 # How many characters of each email body to show the model. Bodies can be
 # long — e.g. a director's end-of-cycle email where the deliverables are
@@ -188,43 +188,6 @@ Emails:
 
 # ── Mistral call ──────────────────────────────────────────────────────────────
 
-def _response_to_json_text(content: Any) -> str:
-    """
-    Pull the JSON payload out of a chat response, robust to reasoning mode.
-
-    With ``prompt_mode="reasoning"`` the model may (a) return ``content`` as a
-    LIST of chunks (a thinking chunk + a text chunk) instead of a plain string,
-    and/or (b) prepend a ``<think>...</think>`` block before the JSON. A plain
-    ``json.loads(content)`` would choke on either. This normalises both: keep
-    only text chunks, strip any think block, then isolate the outermost { ... }.
-    """
-    # 1. Flatten list-of-chunks (reasoning) down to its text parts.
-    if isinstance(content, str):
-        text = content
-    else:
-        parts: list[str] = []
-        for chunk in content or []:
-            ctype = getattr(chunk, "type", None)
-            piece = getattr(chunk, "text", None)
-            if ctype is None and isinstance(chunk, dict):
-                ctype = chunk.get("type")
-                piece = chunk.get("text")
-            # Skip 'thinking'/'reasoning' chunks; keep text (or untyped) ones.
-            if ctype in (None, "text") and piece:
-                parts.append(piece)
-        text = "".join(parts)
-
-    # 2. Drop any <think>...</think> the model emitted inline.
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-
-    # 3. Isolate the outermost JSON object so stray prose can't break the parse.
-    start, end = text.find("{"), text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        text = text[start : end + 1]
-    return text
-
-
-
 async def triage_batch(emails: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Classify a batch of emails with a single Mistral call.
@@ -297,8 +260,9 @@ async def triage_batch(emails: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 {"role": "user",   "content": prompt},
             ],
             response_format={"type": "json_object"},
+            reasoning_effort="high",
         )
-        json_text = _response_to_json_text(response.choices[0].message.content)
+        json_text = response_to_json_text(response.choices[0].message.content)
         parsed = json.loads(json_text)
         return parsed.get("results", [])
 

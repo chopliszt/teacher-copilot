@@ -26,7 +26,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 import sys
 from pathlib import Path

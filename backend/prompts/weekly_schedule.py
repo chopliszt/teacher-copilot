@@ -14,7 +14,9 @@ import re
 from datetime import time as _time
 from pathlib import Path
 
-from mistralai import Mistral
+from mistralai.client import Mistral
+
+from prompts._reasoning import response_to_json_text
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
@@ -194,8 +196,9 @@ async def extract_weekly_schedule(document_text: str) -> dict:
                 {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
+            reasoning_effort="high",
         )
-        result = json.loads(response.choices[0].message.content)
+        result = json.loads(response_to_json_text(response.choices[0].message.content))
 
         # Python post-processing: enforce time-overlap filter deterministically
         schedule = _load_schedule()
