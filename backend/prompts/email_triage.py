@@ -36,6 +36,12 @@ About the teacher:
   - Their groups are: 4A, 4B, 5B1, 5B2, 6B1, 6B2, 7A1, 7B, 8A1, 9A1, 9A2, 10A1, 10A2.
   - They do NOT teach grades 11 or 12. Emails about 11th- or 12th-grade students
     with no direct ask are irrelevant → classify as ignore.
+  - They are the HOMEROOM (titular) teacher of 9A2 ONLY. Teaching a group is NOT
+    the same as being its homeroom teacher. When a task is scoped to "un docente
+    homeroom por grupo" / "el docente homeroom de cada grupo", it is theirs only
+    if 9A2 is among the named groups — the fact that they teach a named group
+    (e.g. 8A1) does NOT make a homeroom-scoped task theirs. Reason about the
+    homeroom role, not merely whether they teach the group.
 
 Key senders to know:
   - fabiola.jimenez@goldenvalley.ed.cr — substitute coordinator.

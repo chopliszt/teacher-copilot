@@ -275,6 +275,40 @@ EVAL_CASES: list[dict] = [
         "expected_category": "absence",
         "description": "Forwarded absence justification — must extract student + group.",
     },
+    # ── REAL INBOX (2026-06-04 dual-model comparison) — Small-3 missed these ──
+    {
+        "id": "eval_kim_meeting_reserve",
+        "subject": "Reunión de cierre de semestre con Dirección",
+        "snippet": "Buenos días, compañeros: Me gustaría reunirme con cada uno de ustedes durante el período comprendido entre el 8 y el 17 de junio. Les agradezco ingresar a mi calendario para reservar un espacio de 40 minutos.",
+        "body": "Buenos días, compañeros: Espero que se encuentren muy bien. Me gustaría reunirme con cada uno de ustedes durante el período comprendido entre el 8 y el 17 de junio. Les agradezco ingresar a mi calendario para reservar un espacio de 40 minutos en el horario que mejor les convenga. Durante esta reunión de seguimiento abordaremos: seguimiento de estudiantes, retroalimentación de Dirección, proyecciones para el próximo semestre. Con gratitud, Kim",
+        "sender": '"Kimberly María Fonseca Arguello" <kimberly.fonseca@goldenvalley.ed.cr>',
+        "to": "GVS Montessori Teachers <montessoriteachers@goldenvalley.ed.cr>, GVS Primary Teachers <primaryteachers@goldenvalley.ed.cr>",
+        "cc": "",
+        "expected_category": "action_required",
+        "description": "Director broadcast that hands each teacher a dated task (reserve a 40-min slot, Jun 8-17). Collective greeting, but the deliverable is mine. Small-3 ignored it; reasoning caught it.",
+    },
+    {
+        "id": "eval_fabiola_exam_count",
+        "subject": "Cantidad de exámenes a imprimir",
+        "snippet": "Buenas tardes, Les adjunto el documento para que por favor anoten la cantidad de exámenes que necesitan. Cualquier consulta con gusto.",
+        "body": "Buenas tardes, Espero que todos se encuentren bien. Les adjunto el documento para que por favor anoten la cantidad de exámenes que necesitan. Cualquier consulta con gusto. Saludos,",
+        "sender": "Fabiola Jimenez <fabiola.jimenez@goldenvalley.ed.cr>",
+        "to": "GVS Secondary Teachers <secondaryteachers@goldenvalley.ed.cr>",
+        "cc": '"Carolina de los Ángeles Marín Siles" <carolina.marin@goldenvalley.ed.cr>, "Kimberly María Fonseca Arguello" <kimberly.fonseca@goldenvalley.ed.cr>',
+        "expected_category": "action_required",
+        "description": "Key sender (exam coordinator) broadcast with a concrete deliverable (note exam counts in the doc). Teacher prefers recall here even when not giving exams this cycle. Small-3 missed it.",
+    },
+    {
+        "id": "eval_carolina_homeroom_form",
+        "subject": "Fwd: Estado de proyectores y parlantes en aulas",
+        "snippet": "Buenas tardes. Por favor 8A1, 8A2, 11A1 llenar el form. Saludos.",
+        "body": "Buenas tardes. Por favor 8A1, 8A2, 11A1 llenar el form. Saludos. ---------- Forwarded message --------- De: Carolina de los Ángeles Marín Siles <carolina.marin@goldenvalley.ed.cr> Buenos días: El presente formulario tiene como objetivo recopilar información sobre el estado y funcionamiento de los proyectores en las aulas. Por favor, solicitamos que *un docente homeroom por grupo* complete el formulario, con el fin de consolidar la información y trasladarla a los departamentos de IT y Operaciones. Agradecemos completarlo a la brevedad posible. Form https://forms.gle/aVdRjsa1rXFuyzaa8",
+        "sender": '"Carolina de los Ángeles Marín Siles" <carolina.marin@goldenvalley.ed.cr>',
+        "to": "GVS Secondary Teachers <secondaryteachers@goldenvalley.ed.cr>",
+        "cc": "",
+        "expected_category": "ignore",
+        "description": "PRECISION TRAP: director form scoped to 'un docente homeroom por grupo' for 8A1/8A2/11A1. Teacher is homeroom of 9A2 ONLY (and doesn't teach 11), so NOT his task. Needs the teaching≠homeroom discriminator; without it the model over-flags because it teaches 8A1.",
+    },
 ]
 
 
