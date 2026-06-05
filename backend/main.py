@@ -2016,7 +2016,13 @@ def _build_voice_context(
             )
         sessions_str = "\n".join(parts)
 
+    # Absolute date so Marimba can resolve "tomorrow"/"Friday" into a concrete
+    # YYYY-MM-DD for add_event (the schedule block only has TODAY/NEXT markers,
+    # not the calendar date).
+    today_str = _get_current_time().strftime("%Y-%m-%d (%A)")
+
     return (
+        f"Today's date: {today_str}\n\n"
         f"{schedule_block}\n\n"
         f"Pending tasks:\n{tasks_str}"
         f"{sessions_str}"
@@ -2215,6 +2221,27 @@ async def handle_voice(
                 )
                 db.add(record)
                 db.commit()
+
+        # add_event: create a calendar event/meeting on the teacher's schedule.
+        # Marimba resolves the absolute date from "Today's date" in the context;
+        # we persist via the same events helper the email path uses (so dedup by
+        # date+title applies). source="voice" — these are always surfaced.
+        elif action and action.get("type") == "add_event":
+            import events as events_mod
+
+            ev_title = (action.get("title") or "").strip()
+            ev_date = (action.get("date") or "").strip()
+            if ev_title and ev_date:
+                events_mod.create_or_update_event(
+                    db,
+                    title=ev_title,
+                    date=ev_date,
+                    start_time=(action.get("start_time") or None),
+                    end_time=(action.get("end_time") or None),
+                    location=(action.get("location") or None),
+                    source="voice",
+                    relevance="surfaced",
+                )
 
         # complete_task: clear a teacher task or dismiss an action-required
         # email. The id was shown to Marimba in the context's task list; we

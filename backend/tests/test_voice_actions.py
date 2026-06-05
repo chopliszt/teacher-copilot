@@ -314,3 +314,41 @@ class TestConversationMemory:
         stub_voice.set_transcript("fresh question")
         client.post("/api/voice", files=_DUMMY_AUDIO)
         assert stub_voice.calls[-1]["history"] == []
+
+
+class TestAddEvent:
+    """add_event persists a meeting to the teacher's schedule (source=voice)."""
+
+    def test_add_event_creates_surfaced_event(self, test_db, stub_voice):
+        from sqlalchemy import select
+        from database import EventRecord
+
+        stub_voice({
+            "type": "add_event",
+            "title": "Department meeting",
+            "date": "2026-06-05",
+            "start_time": "12:00",
+            "end_time": "12:45",
+            "location": "library",
+        })
+        resp = client.post("/api/voice", files=_DUMMY_AUDIO)
+        assert resp.status_code == 200
+
+        db = test_db()
+        ev = db.execute(select(EventRecord)).scalars().one()
+        assert ev.title == "Department meeting"
+        assert ev.date == "2026-06-05"
+        assert ev.start_time == "12:00"
+        assert ev.location == "library"
+        assert ev.source == "voice"
+        assert ev.relevance == "surfaced"
+
+    def test_add_event_without_date_is_ignored(self, test_db, stub_voice):
+        from sqlalchemy import select
+        from database import EventRecord
+
+        stub_voice({"type": "add_event", "title": "Vague meeting"})  # no date
+        client.post("/api/voice", files=_DUMMY_AUDIO)
+
+        db = test_db()
+        assert db.execute(select(EventRecord)).scalars().all() == []

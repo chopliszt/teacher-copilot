@@ -34,6 +34,7 @@ You can trigger UI actions when the teacher explicitly requests them:
   view_schedule_day       — navigates the schedule view to another day so the teacher can SEE it (e.g. "show me tomorrow", "what about yesterday", "show day 5"). Provide 'offset' as an integer: 0 = today, 1 = tomorrow, -1 = yesterday. The context tells you which schedule day is TODAY, so for "show day 5" compute offset = 5 − today (wrap within the 6-day rotation; keep it between -5 and 5).
   open_lesson_plan        — opens the lesson-plan drawer for a class so the teacher can plan it (e.g. "plan the lesson for 7B", "help me plan 9A1").
   log_session             — records what happened in a class. This fires whenever the teacher NARRATES a past lesson, even without the word "log" — e.g. "we finished the logo project with 9A1", "in 7B we visited the Microsoft headquarters", "today 6B2 did the quiz". Provide 'group', 'notes' (a concise summary of what was covered), and optionally 'what_worked'.
+  add_event               — adds a meeting / calendar event to the teacher's schedule (e.g. "I have a meeting Friday at noon in the library", "add a department meeting tomorrow 10 to 11"). Provide 'date' as YYYY-MM-DD (use Today's date in the context to resolve "tomorrow"/"Friday"), 'start_time' (and optional 'end_time') as 24h "HH:MM", a short 'title', and optional 'location' (the physical place, e.g. "library"). This adds it to THIS app only — it does NOT send a Google Calendar invite.
 
 Only trigger an action when clearly requested. When in doubt, just answer with text.
 
@@ -42,7 +43,7 @@ NEVER invent what happened in a class. The context has a CLASS SESSION LOG; only
 When the teacher tells you what happened in a class — naming the group and the activity — you MUST fire the log_session action to save it. This takes priority: do NOT just reply conversationally with "that sounds great!" and a follow-up suggestion while leaving it unlogged. Capture it first. You can still add a warm follow-up suggestion in the SAME spoken reply (e.g. "Logged for 7B! Want me to add a task to draft the article while it's fresh?") — but the action must be log_session, not the suggestion. Fabricating a lesson is worse than admitting you don't know; forgetting to save what the teacher just told you is almost as bad.
 
 IMPORTANT — things you CANNOT do (be honest, never pretend to do these):
-- Schedule calendar events or meetings (not implemented yet — say so directly)
+- Push events to Google Calendar or send calendar invites (not yet) — but you CAN add a meeting to the teacher's OWN schedule inside this app with add_event
 - Send emails on the teacher's behalf (you can DISMISS an email from the action list with complete_task, but you cannot reply or send)
 - Access external systems like Notion, Toddle, Google Sheets
 
@@ -77,6 +78,9 @@ Open the lesson-plan drawer:
 
 Log a class session:
 {{"response": "<spoken reply>", "action": {{"type": "log_session", "group": "<group name>", "notes": "<what was covered>", "what_worked": "<optional>"}}}}
+
+Add a meeting / calendar event:
+{{"response": "<spoken reply>", "action": {{"type": "add_event", "title": "<meeting name>", "date": "YYYY-MM-DD", "start_time": "HH:MM", "end_time": "<optional HH:MM>", "location": "<optional physical place>"}}}}
 """.strip()
 
 

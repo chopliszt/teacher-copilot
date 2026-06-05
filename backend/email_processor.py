@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from database import ImportantEmailRecord, AbsenceRecord, EmailRecipientRecord
 from prompts.email_triage import triage_batch
+import events
 
 
 def _extract_email_address(raw: str) -> str:
@@ -104,6 +105,7 @@ async def process_batch(
 
     emails_saved  = 0
     absences_saved = 0
+    events_saved   = 0
     # Gmail message ids of absence emails in this batch. They're pure FYI and
     # already captured in the app, so the caller marks them read in Gmail to
     # keep the teacher's unread count honest (see _run_gmail_sync).
@@ -162,7 +164,32 @@ async def process_batch(
                 ))
                 absences_saved += 1
 
-        # "ignore" → do nothing
+        # "ignore" → no important-email row
+
+        # Event extraction is independent of the category: an email can carry a
+        # meeting whether it's action_required or ignore. Persist any event the
+        # model found (dedup/update by eid, else date+title — handled in events).
+        # Interim relevance bridge: surface events from mail that matters to the
+        # teacher, mute events buried in broadcasts. Group 3 replaces this with a
+        # principle-first relevance gate.
+        event_data = result.get("event")
+        if isinstance(event_data, dict) and event_data.get("title") and event_data.get("date"):
+            attendees = event_data.get("attendees")
+            events.create_or_update_event(
+                db,
+                title=str(event_data["title"]).strip(),
+                date=str(event_data["date"]).strip(),
+                start_time=(event_data.get("start_time") or None),
+                end_time=(event_data.get("end_time") or None),
+                location=(event_data.get("location") or None),
+                meet_link=(event_data.get("meet_link") or None),
+                attendees=attendees if isinstance(attendees, list) else None,
+                source="email",
+                source_ref=email.id,
+                eid=(event_data.get("eid") or None),
+                relevance="surfaced" if category in ("action_required", "weekly_schedule") else "muted",
+            )
+            events_saved += 1
 
     db.commit()
 
@@ -171,5 +198,6 @@ async def process_batch(
         "emails_processed": len(emails),
         "emails_saved": emails_saved,
         "absences_saved": absences_saved,
+        "events_saved": events_saved,
         "absence_ids": absence_ids,
     }

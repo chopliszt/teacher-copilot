@@ -170,6 +170,42 @@ If the teacher's personal context (provided below) names specific
 collaborators or describes ongoing initiatives they are organizing,
 treat emails from those people OR about those initiatives as
 action_required by default.
+
+EVENT EXTRACTION — alongside the category, capture meetings:
+  Some emails describe a concrete calendar EVENT the teacher may need to
+  attend — a time-anchored commitment that is NOT one of their regular
+  classes (a staff or department meeting, a training, a call, a parent
+  meeting). This includes Google Calendar invitations, which arrive as
+  email and have a recognisable shape: an organizer, a date and time, a
+  guest list, and often a "Join with Google Meet" link.
+
+  Recognise an event by its NATURE (when + who + where), not by any single
+  word. A brand-new invite and an updated one are BOTH events — NEVER rely
+  on the words "updated" / "changed" to decide whether to extract. Those say
+  the event changed, not whether it exists; a fresh invite with none of that
+  wording is just as much an event.
+
+  When an email describes such an event, add an "event" object to that
+  email's result (omit any field you genuinely can't find — never invent a
+  date or time you weren't given):
+    - title:      the meeting's name (e.g. "Reunión secundaria").
+    - date:       calendar date as YYYY-MM-DD (resolve the year).
+    - start_time / end_time: 24-hour "HH:MM" local time.
+    - location:   the PHYSICAL place people meet, if stated ANYWHERE —
+                  including plain prose in the body ("nos vemos en la
+                  biblioteca" → "biblioteca"). This is the high-value field:
+                  invites auto-attach a video link even for in-person
+                  meetings and usually DON'T name the room, so when the body
+                  does, capture it.
+    - meet_link:  the video-call URL (Google Meet, etc.), kept SEPARATE from
+                  and secondary to the physical location.
+    - attendees:  the guest names, if listed.
+    - eid:        the Google Calendar event id if present — the value of the
+                  "eid=" parameter in a calendar link
+                  (…/event?action=VIEW&eid=XXXX). It is stable across updates,
+                  so it lets us edit the same event instead of duplicating it.
+
+  If an email describes no concrete event, omit "event" entirely.
 """.strip()
 
 CLASSIFICATION_RULES = """
@@ -182,10 +218,24 @@ Format:
       "id": "<email id>",
       "category": "action_required | absence | weekly_schedule | ignore",
       "student_name": "<only for absence emails, else omit>",
-      "group": "<only for absence emails e.g. '6B1', else omit>"
+      "group": "<only for absence emails e.g. '6B1', else omit>",
+      "event": {{
+        "title": "<meeting name>",
+        "date": "YYYY-MM-DD",
+        "start_time": "HH:MM",
+        "end_time": "HH:MM",
+        "location": "<physical place, if stated>",
+        "meet_link": "<video URL, if any>",
+        "attendees": ["<name>", "..."],
+        "eid": "<calendar event id, if present>"
+      }}
     }}
   ]
 }}
+
+Include "event" ONLY when the email describes a concrete meeting; omit it
+otherwise. The category and the event are independent — an email can be
+action_required AND carry an event, or carry an event while being ignore.
 
 Emails:
 {emails_block}
