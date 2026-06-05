@@ -116,7 +116,7 @@ export default function App() {
     if (meetingDismissRef.current) clearTimeout(meetingDismissRef.current);
   }, []);
 
-  const { marimbaState, toggleListening, discardRecording, isSupported, lastResponse } = useVoice({
+  const { marimbaState, toggleListening, startListeningAbout, discardRecording, isSupported, lastResponse } = useVoice({
     onAction: handleVoiceAction,
   });
 
@@ -143,6 +143,7 @@ export default function App() {
             closeAllCounter={closeAllCounter}
             peekRequest={voicePeek}
             openLessonPlan={voiceLessonPlan}
+            onVoiceAboutEvent={startListeningAbout}
           />
         </div>
         <FridayBanner hasWeeklyData={hasWeeklyData} weekLabel={weekLabel} />

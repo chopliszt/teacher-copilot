@@ -26,8 +26,10 @@ This is **two problems, not one**:
    as a class (it has a start time and you must be somewhere), so it belongs **on the
    timeline with classes**, not in a separate calendar panel.
 
-We keep the "one tab" promise. We do **not** build a calendar; Google Calendar is at
-most an optional one-tap *export* (a backup alarm), never the primary surface.
+We keep the "one tab" promise. We do **not** build a calendar and we do **not** push
+events out to Google Calendar — the teacher just wants the event to live in the app /
+Marimba. (Reading *from* Google Calendar as an extra input source is still a candidate —
+see below — but that's import, not export.)
 
 ## Scope — what's IN (experimental slice)
 
@@ -58,12 +60,8 @@ most an optional one-tap *export* (a backup alarm), never the primary surface.
   "Got it", no calendar button. The two are the same intent in two modes — not the
   four-option pile that felt anxious. Anything actionable — suggesting next steps,
   adding to calendar — happens *in the conversation, on demand*, never as pre-loaded
-  pressure on the card. (Later, a conversation can surface a small **action popup** —
-  e.g. "want me to add this to your calendar?" — rather than the card carrying task
-  buttons up front.)
-- **Calendar export is conversational, not a button.** To put an event on Google
-  Calendar the teacher asks Marimba; Marimba **confirms date / time / concept before
-  sending**. Export is a deliberate, confirmed flow — never a silent one-tap fire.
+  pressure on the card. (Later, a conversation can surface a small **action popup** for
+  a genuinely useful next step — rather than the card carrying task buttons up front.)
 - **Dismiss = a relevance signal, not a delete.** A quiet `×` on the collapsed row
   (ADHD: no dead ends). The teacher rarely needs it *if triage works* — she'd tap it
   only when an event isn't relevant, was a "Coming up" she's already acknowledged, or
@@ -100,7 +98,7 @@ Treated as **phase 2 of this feature**, not out of scope.
 | Future events | **"Coming up" heads-up that graduates** | Self-cleaning; only today's events sit in the timeline. |
 | Visual encoding | **Icon + amber accent + position** | Never color alone (dyslexia / colorblind safe). |
 | Expanded card actions | **Two: "Chat about this" (text drawer) + 🦊 (voice)** | Same intent, two modes — not the four-option pile that felt anxious. |
-| Google Calendar (export) | **Conversational — Marimba confirms then sends** | A silent one-tap fire felt risky; confirm date/time/concept first. |
+| Google Calendar (export/push) | **Dropped** | Teacher only wants the event in the app/Marimba; no send-to-Google flow. |
 | Dismiss `×` | **Soft-dismiss + relevance feedback (not delete)** | Triage decides importance; the tap is a training signal, event stays findable. |
 | Schedule appearance | **Independent, via event logic — not a manual Top-3 promotion** | Less friction; the schedule reflects reality automatically. Events may *also* appear in priorities/Top 3; the two surfaces coexist. |
 | Calendar-invite emails | **First-class input — new *and* updates** | Recognize a calendar event by its nature (organizer/when/guests/Meet), not by "updated" wording (principle-first). New → create; "Changed/updated" → edit the existing event (dedup by `eid`), never duplicate. |
@@ -151,7 +149,7 @@ What it must exercise:
 - **Physical location wins.** Capture "en la biblioteca" as the **primary** location and
   surface it prominently; capture the Meet link but keep it secondary. (This invite is
   in person *despite* carrying a Meet link — the room is the valuable bit.)
-- **Relevance:** Camilo is a named guest → `surfaced` (personally expected).
+- **Relevance:** Camilo is a named guest → `shown` (personally expected).
 - **Horizon:** it's *tomorrow* (today = Thu Jun 4). Slice 1 → lives in priorities today,
   **graduates onto Friday's timeline at 12:00**. (When "Coming up" ships, it shows there
   today too.)

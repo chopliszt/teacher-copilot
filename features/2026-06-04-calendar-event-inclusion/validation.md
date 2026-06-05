@@ -27,14 +27,14 @@ noise back. Validate against concrete scenarios, end-to-end (extraction → gate
 actually appears, or not, on the timeline):
 
 - [ ] **Director's direct invite** (carolina.marin@ / kimberly.fonseca@) for today →
-      `surfaced` **and visibly on today's timeline**.
-- [ ] **Fabiola cover/substitute request** → `surfaced` (treated as urgent).
+      `shown` **and visibly on today's timeline**.
+- [ ] **Fabiola cover/substitute request** → `shown` (treated as urgent).
 - [ ] **Reshapes her teaching day** (room change, schedule shift, a meeting in a class
-      slot) → `surfaced`.
+      slot) → `shown`.
 - [ ] **School-wide announcement not naming her** (assembly, "the musical is Friday") →
-      `muted`, never on the timeline.
-- [ ] **CC-only / FYI thread** where she isn't expected to act → `muted`.
-- [ ] Manual/voice events are always `surfaced`.
+      `hidden`, never on the timeline.
+- [ ] **CC-only / FYI thread** where she isn't expected to act → `hidden`.
+- [ ] Manual/voice events are always `shown`.
 - [ ] No **false events** (an email with no real event yields none) and no **dropped**
       true events (a clear invite is never silently lost).
 - [ ] The relevance eval set passes **with margin** (principle-first, not overfit to
@@ -42,7 +42,7 @@ actually appears, or not, on the timeline):
 
 ## 3. Today's timeline shows events correctly
 
-- [ ] Today's `surfaced` events appear **interleaved with classes in time order** in
+- [ ] Today's `shown` events appear **interleaved with classes in time order** in
       `TodaySchedule` (a meeting between two classes sits between them).
 - [ ] Events are visually distinguishable by **icon + amber accent + position**, not by
       color alone (readable in grayscale).
@@ -54,8 +54,6 @@ actually appears, or not, on the timeline):
 - [ ] The quiet `×` soft-dismisses (row disappears immediately) **and** writes a
       relevance-feedback record; the dismissed event is **still findable** (Marimba can
       answer "what was that meeting?"). No hard delete, no dead end.
-- [ ] Asking Marimba to add an event to Google Calendar triggers a **confirm step**
-      (date / time / concept) before anything is sent.
 
 ## 4. Conversation about an event is grounded and useful (not hallucinated)
 

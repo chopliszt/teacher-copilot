@@ -11,10 +11,11 @@ the timeline (group 4) is the payoff slice — stop and demo there before going 
      *recorded* meetings). Fields: `id`, `title`, `date`, `start_time`, `end_time?`,
      `location?` (physical/in-person place — primary), `meet_link?` (video URL —
      secondary), `attendees?`, `source` (`email`/`voice`/`weekly`/`gcal`), `source_ref?`
-     (e.g. email id), `eid?` (calendar event id — dedup/update key), `relevance`
-     (`surfaced`/`muted`), `dismissed_at?`, `created_at`, `updated_at?`.
+     (e.g. email id), `eid?` (calendar event id — dedup/update key), `visibility`
+     (`shown`/`hidden` — set by the relevance gate), `dismissed_at?`, `created_at`,
+     `updated_at?`.
 1.2. CRUD helpers: create, list-for-day, list-upcoming, soft-dismiss (`dismissed_at`),
-     set-relevance. Dismissed events stay findable (queryable by Marimba), just hidden
+     set-visibility. Dismissed events stay findable (queryable by Marimba), just hidden
      from the surface.
 1.3. Decide dedup key (date + start_time + fuzzy title) so the same event from two
      sources collapses into one row.
@@ -38,26 +39,26 @@ the timeline (group 4) is the payoff slice — stop and demo there before going 
      (mirror `add_task`): Marimba parses "I have a meeting tomorrow at noon" → structured
      event; backend saves it immediately (like `add_task` today). Add a minimal manual
      add path for parity.
-2.3. **Reconcile with weekly-schedule meetings.** → **deferred to Group 4.** Today's
-     `weekly_data["meetings"]` (`main.py:_meeting_to_task`) should flow through the same
-     `EventRecord` path / dedup — but those meetings carry only `day` / `schedule_day`
-     (1–6) + `time`, no concrete `YYYY-MM-DD`. Resolving day→date needs the rolling
-     schedule-day context that Group 4 (today's timeline) sets up, so do it there to
-     avoid a brittle standalone date guesser.
+2.3. **Reconcile with weekly-schedule meetings.** → **done in Group 4** (`main.py`
+     `_reconcile_weekly_events`). Today's `weekly_data["meetings"]` are mapped onto TODAY
+     when their rotation `schedule_day` matches the current one, materialized as
+     `source="weekly"` events (time parsed via `_parse_meeting_time`), and folded into the
+     same timeline + dedup as email/voice events. Idempotent (`update_if_exists=False`),
+     so re-reads don't duplicate and a dismissed weekly meeting stays gone.
 
 ## 3. Relevance gate (clutter control, upstream)
 
 3.1. Define the gate as a principle: an event surfaces if the teacher is personally
      expected, it reshapes her teaching day, it carries prep/action, or it's from a key
-     sender (directors, Fabiola). Otherwise `relevance = muted`.
+     sender (directors, Fabiola). Otherwise `visibility = hidden`.
 3.2. Apply automatically to email- and gcal-sourced events; manual/voice events are
-     always `surfaced` (she created them).
+     always `shown` (she created them).
 3.3. Build a tiny eval set (relevant vs. noise pairs, same-sender contrasts) and tune
      the prompt against it — let evals, not vibes, decide.
 
 ## 4. Display — today's timeline (the payoff)
 
-4.1. Backend: expose today's `surfaced` events through the data the schedule view reads
+4.1. Backend: expose today's `shown` events through the data the schedule view reads
      (alongside classes + disruptions), time-ordered.
 4.2. `TodaySchedule.tsx`: interleave events with classes in one time-ordered list.
 4.3. Visual encoding per DESIGN.md: distinct **icon + amber hairline + position** — never
@@ -71,16 +72,15 @@ the timeline (group 4) is the payoff slice — stop and demo there before going 
 4.6. Dismiss = relevance signal: a quiet `×` on the collapsed row → soft-dismiss (row
      disappears immediately, event stays findable) **and** write a feedback record
      (group 1.4). No labeled dismiss button in the expanded view.
-4.7. Calendar export is conversational: an `add_to_calendar` flow where Marimba
-     **confirms date / time / concept before sending** (builds on connectors/gmail-style
-     send + the existing voice action dispatch). Not a button on the card.
+4.7. ~~Calendar export / push to Google Calendar~~ — **dropped.** The teacher only wants
+     the event living in the app / Marimba; there is no send-to-Google-Calendar flow.
 
 ## 5. ⏸ "Coming up" heads-up (DO NOT BUILD YET)
 
 5.1. First: produce a static mockup of the "Coming up" line and get teacher sign-off on
      usefulness + look-ahead horizon (tomorrow vs. 48h). **Gate the rest of group 5 on
      that approval.**
-5.2. (after approval) Backend: list upcoming `surfaced` events within the chosen horizon.
+5.2. (after approval) Backend: list upcoming `shown` events within the chosen horizon.
 5.3. (after approval) Frontend: render the quiet one-line heads-up; it graduates onto the
      timeline when its day arrives; one-tap dismiss.
 

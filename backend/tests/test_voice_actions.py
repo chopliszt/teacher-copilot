@@ -319,7 +319,7 @@ class TestConversationMemory:
 class TestAddEvent:
     """add_event persists a meeting to the teacher's schedule (source=voice)."""
 
-    def test_add_event_creates_surfaced_event(self, test_db, stub_voice):
+    def test_add_event_creates_shown_event(self, test_db, stub_voice):
         from sqlalchemy import select
         from database import EventRecord
 
@@ -335,13 +335,13 @@ class TestAddEvent:
         assert resp.status_code == 200
 
         db = test_db()
-        ev = db.execute(select(EventRecord)).scalars().one()
-        assert ev.title == "Department meeting"
-        assert ev.date == "2026-06-05"
-        assert ev.start_time == "12:00"
-        assert ev.location == "library"
-        assert ev.source == "voice"
-        assert ev.relevance == "surfaced"
+        event = db.execute(select(EventRecord)).scalars().one()
+        assert event.title == "Department meeting"
+        assert event.date == "2026-06-05"
+        assert event.start_time == "12:00"
+        assert event.location == "library"
+        assert event.source == "voice"
+        assert event.visibility == "shown"
 
     def test_add_event_without_date_is_ignored(self, test_db, stub_voice):
         from sqlalchemy import select

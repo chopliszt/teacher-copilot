@@ -5,7 +5,7 @@ inclusion (Group 1 of features/2026-06-04-calendar-event-inclusion).
 
 Covers: create, update-by-eid (the "this event was updated" case),
 dedup-by-date+title, today/upcoming queries, soft-dismiss + feedback signal,
-relevance muting, and physical-location-vs-meet-link storage.
+visibility hiding, and physical-location-vs-meet-link storage.
 """
 
 import pytest
@@ -56,7 +56,7 @@ def test_create_event_persists_fields(db):
     assert rec.title == "Reunión secundaria"
     assert rec.date == "2026-06-05"
     assert rec.start_time == "12:00"
-    assert rec.relevance == "surfaced"
+    assert rec.visibility == "shown"
     assert rec.created_at
     # physical place and video link are stored separately
     assert rec.location == "biblioteca"
@@ -107,12 +107,12 @@ def test_different_title_same_day_is_a_separate_event(db):
 
 # ── queries ──────────────────────────────────────────────────────────────────
 
-def test_list_for_day_orders_by_start_time_and_excludes_muted(db):
+def test_list_for_day_orders_by_start_time_and_excludes_hidden(db):
     _make(db, title="Late", start_time="15:00")
     _make(db, title="Early", start_time="08:00")
-    _make(db, title="Hidden", start_time="09:00", relevance="muted")
+    _make(db, title="Hidden", start_time="09:00", visibility="hidden")
     titles = [e.title for e in events.list_events_for_day(db, "2026-06-05")]
-    assert titles == ["Early", "Late"]  # muted excluded, sorted by time
+    assert titles == ["Early", "Late"]  # hidden excluded, sorted by time
 
 
 def test_list_upcoming_respects_horizon(db):
@@ -144,7 +144,7 @@ def test_dismiss_missing_event_returns_none(db):
     assert events.dismiss_event(db, "nope") is None
 
 
-def test_set_relevance_mutes_event(db):
+def test_set_visibility_hides_event(db):
     rec = _make(db)
-    events.set_relevance(db, rec.id, "muted")
+    events.set_visibility(db, rec.id, "hidden")
     assert events.list_events_for_day(db, "2026-06-05") == []

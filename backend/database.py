@@ -247,7 +247,9 @@ class EventRecord(Base):
     eid is the Google Calendar event id — stable across updates — so an "updated"
     invite edits the existing row instead of creating a duplicate.
 
-    relevance gates whether it surfaces ("surfaced") or stays quiet ("muted").
+    visibility gates whether it shows on the schedule ("shown") or stays quiet
+    ("hidden") — set by the relevance gate (a school-wide assembly the teacher
+    has no role in is "hidden"; a meeting she's invited to is "shown").
     dismissed_at is a soft-dismiss: the row stays findable, just leaves the
     surface (and each dismiss also writes a PriorityFeedbackRecord noise signal).
     """
@@ -267,7 +269,7 @@ class EventRecord(Base):
     # For source="email" this is the Gmail message id; null for voice-added events.
     source_ref = Column(String, nullable=True)
     eid = Column(String, nullable=True, index=True)  # calendar event id — dedup/update key
-    relevance = Column(String, nullable=False, default="surfaced")  # surfaced | muted
+    visibility = Column(String, nullable=False, default="shown")  # shown | hidden
     dismissed_at = Column(String, nullable=True)  # ISO-8601 UTC; soft-dismiss, never deleted
     created_at = Column(String, nullable=False)  # ISO-8601 UTC
     updated_at = Column(String, nullable=True)  # ISO-8601 UTC; set when an update edits the row

@@ -59,6 +59,7 @@ EVAL_CASES: list[dict] = [
         "to": CAMILO,
         "cc": "",
         "expected_category": "action_required",
+        "expected_event": None,
         "description": "Addressed to me + a direct question, no imperative verb. The original miss.",
     },
     # ── RECALL — second-person question from a known collaborator ─────────
@@ -309,6 +310,32 @@ EVAL_CASES: list[dict] = [
         "expected_category": "ignore",
         "description": "PRECISION TRAP: director form scoped to 'un docente homeroom por grupo' for 8A1/8A2/11A1. Teacher is homeroom of 9A2 ONLY (and doesn't teach 11), so NOT his task. Needs the teaching≠homeroom discriminator; without it the model over-flags because it teaches 8A1.",
     },
+    # ── EVENT — calendar invite where the teacher is a named guest → shown ──
+    {
+        "id": "eval_event_calendar_invite",
+        "subject": "Updated invitation: Reunión secundaria @ Fri Jun 5, 2026 12pm - 12:45pm",
+        "snippet": "Reunión secundaria — Friday Jun 5, 2026 12pm–12:45pm. Nos vemos en la biblioteca. Join with Google Meet…",
+        "body": "This event has been updated\nChanged: time\n\nReunión secundaria\nFriday Jun 5, 2026 ⋅ 12pm – 12:45pm\nCentral Standard Time - Costa Rica\n\nJoin with Google Meet\nhttps://meet.google.com/ixh-zdnb-ifk\n\nHola a todos, nos gustaría tener un espacio con ustedes. Nos vemos en la biblioteca. Un abrazo,\n\nOrganizer: Priscilla Noguera rh@goldenvalley.ed.cr\nGuests: Priscilla Noguera - organizer, Esteban Villalobos, Stefan Linge, Camilo Infante, Michael Roberts, Bryan Castillo\nView event: https://calendar.google.com/calendar/event?action=VIEW&eid=NWRwcTQzcGgydTc2ODE1anE0Y2FrNHBpZG0gY2FtaWxvLmluZmFudGU",
+        "sender": "Priscilla Noguera <rh@goldenvalley.ed.cr>",
+        "to": CAMILO,
+        "cc": "",
+        "expected_category": "action_required",
+        "expected_event": {"visibility": "shown"},
+        "description": "Google Calendar invite (an update). Camilo is a named guest → event shown. Physical room 'biblioteca' is in the body alongside a Meet link; an eid is present.",
+    },
+    # ── EVENT — school-wide assembly, no personal role → hidden ────────────
+    {
+        "id": "eval_event_schoolwide_assembly",
+        "subject": "Asamblea general este viernes",
+        "snippet": "Estimados docentes, este viernes a las 9:00am tendremos asamblea general en el gimnasio.",
+        "body": "Estimados docentes, les recordamos que este viernes 6 de junio a las 9:00am tendremos la asamblea general de fin de semestre en el gimnasio. Saludos.",
+        "sender": "Comunicaciones <comunicaciones@goldenvalley.ed.cr>",
+        "to": "Personal Docente <staff@goldenvalley.ed.cr>",
+        "cc": "",
+        "expected_category": "ignore",
+        "expected_event": {"visibility": "hidden"},
+        "description": "A dated school-wide assembly: broadcast, no role for her → event hidden (and category ignore). Discriminates relevance from mere date-presence.",
+    },
 ]
 
 
@@ -348,21 +375,63 @@ async def run_all_evals(verbose: bool = False) -> int:
         if verbose:
             print(f'       {case["description"]}')
 
+    # ── Event extraction / visibility sub-eval ────────────────────────────
+    # Runs over the same batch results. A case opts in with "expected_event":
+    #   None                     → expect NO event extracted
+    #   {"visibility": "shown"}  → expect an event with that visibility
+    event_cases = [case for case in EVAL_CASES if "expected_event" in case]
+    event_passed = 0
+    event_failures: list[tuple[dict, str]] = []
+
+    if event_cases:
+        print("\n" + "-" * 70)
+        print("📅 EVENT EXTRACTION / VISIBILITY")
+        print("-" * 70)
+        for case in event_cases:
+            event = result_map.get(case["id"], {}).get("event")
+            expected = case["expected_event"]
+            if expected is None:
+                ok = not event
+                got_desc = "event extracted" if event else "no event"
+                want_desc = "no event"
+            else:
+                got_visibility = event.get("visibility") if event else "(no event)"
+                ok = bool(event) and got_visibility == expected["visibility"]
+                got_desc = got_visibility
+                want_desc = expected["visibility"]
+
+            if ok:
+                event_passed += 1
+                print(f'  ✅ {case["id"]:30s} → {got_desc}')
+            else:
+                print(f'  ❌ {case["id"]:30s} → {got_desc}  (expected {want_desc})')
+                event_failures.append((case, str(got_desc)))
+
+        print(f"\n  events: {event_passed}/{len(event_cases)} passed")
+
     total = len(EVAL_CASES)
     accuracy = passed / total * 100 if total else 0
 
     print("\n" + "=" * 70)
-    print(f"📊 RESULTS: {passed}/{total} passed ({accuracy:.0f}% accuracy)")
+    print(f"📊 RESULTS: category {passed}/{total} ({accuracy:.0f}%)"
+          f" · events {event_passed}/{len(event_cases)}")
     print("=" * 70)
 
     if failures:
-        print("\n❌ FAILURES:")
+        print("\n❌ CATEGORY FAILURES:")
         for case, got_cat in failures:
             print(f'  • {case["id"]} — {case["description"]}')
             print(f'    expected {case["expected_category"]}, got {got_cat}')
         print()
 
-    return 0 if not failures else 1
+    if event_failures:
+        print("\n❌ EVENT FAILURES:")
+        for case, got_desc in event_failures:
+            print(f'  • {case["id"]} — {case["description"]}')
+            print(f'    expected {case["expected_event"]}, got {got_desc}')
+        print()
+
+    return 0 if not failures and not event_failures else 1
 
 
 if __name__ == "__main__":

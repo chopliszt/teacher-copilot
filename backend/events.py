@@ -74,7 +74,8 @@ def create_or_update_event(
     attendees: Optional[List[str]] = None,
     source_ref: Optional[str] = None,  # id of the origin record (e.g. Gmail message id)
     eid: Optional[str] = None,
-    relevance: str = "surfaced",
+    visibility: str = "shown",  # shown | hidden — set by the relevance gate
+    update_if_exists: bool = True,
 ) -> EventRecord:
     """
     Insert a new event, or edit the existing one if this is a known event
@@ -84,9 +85,15 @@ def create_or_update_event(
     `updated_at` — this is how an "this event has been updated, changed: time"
     invite lands on the same row instead of duplicating. `dismissed_at` is left
     untouched on update (a dismissed event stays dismissed).
+
+    `update_if_exists=False` returns a matching row untouched instead of editing
+    it — used by the weekly-meeting reconciler, which re-runs on every read and
+    must be idempotent (no churn, and a dismissed weekly meeting stays dismissed).
     """
     existing = _find_existing(db, eid=eid, date=date, title=title)
     if existing is not None:
+        if not update_if_exists:
+            return existing
         existing.title = title
         existing.date = date
         existing.start_time = start_time
@@ -94,7 +101,7 @@ def create_or_update_event(
         existing.location = location
         existing.meet_link = meet_link
         existing.attendees = _attendees_to_json(attendees)
-        existing.relevance = relevance
+        existing.visibility = visibility
         if eid:
             existing.eid = eid
         existing.updated_at = _now_iso()
@@ -114,7 +121,7 @@ def create_or_update_event(
         source=source,
         source_ref=source_ref,
         eid=eid,
-        relevance=relevance,
+        visibility=visibility,
         created_at=_now_iso(),
     )
     db.add(record)
@@ -129,11 +136,11 @@ def get_event(db: Session, event_id: str) -> Optional[EventRecord]:
 
 
 def list_events_for_day(db: Session, date: str) -> List[EventRecord]:
-    """Surfaced, not-dismissed events on a given day, ordered by start time."""
+    """Shown, not-dismissed events on a given day, ordered by start time."""
     rows = db.execute(
         select(EventRecord).where(
             EventRecord.date == date,
-            EventRecord.relevance == "surfaced",
+            EventRecord.visibility == "shown",
             EventRecord.dismissed_at.is_(None),
         )
     ).scalars().all()
@@ -145,7 +152,7 @@ def list_upcoming_events(
     db: Session, after_date: str, horizon_days: int
 ) -> List[EventRecord]:
     """
-    Surfaced, not-dismissed events strictly after `after_date` and within
+    Shown, not-dismissed events strictly after `after_date` and within
     `horizon_days` of it — the data behind a future "Coming up" peek. The UI for
     that is deferred, but the query is cheap to have ready and to test.
     """
@@ -153,7 +160,7 @@ def list_upcoming_events(
     end = start + timedelta(days=horizon_days)
     rows = db.execute(
         select(EventRecord).where(
-            EventRecord.relevance == "surfaced",
+            EventRecord.visibility == "shown",
             EventRecord.dismissed_at.is_(None),
             EventRecord.date > after_date,
             EventRecord.date <= end.isoformat(),
@@ -162,14 +169,14 @@ def list_upcoming_events(
     return sorted(rows, key=lambda e: (e.date, e.start_time or ""))
 
 
-def set_relevance(
-    db: Session, event_id: str, relevance: str
+def set_visibility(
+    db: Session, event_id: str, visibility: str
 ) -> Optional[EventRecord]:
-    """Flip an event between 'surfaced' and 'muted'. Returns the row or None."""
+    """Flip an event between 'shown' and 'hidden'. Returns the row or None."""
     record = db.get(EventRecord, event_id)
     if record is None:
         return None
-    record.relevance = relevance
+    record.visibility = visibility
     db.commit()
     db.refresh(record)
     return record
@@ -189,7 +196,7 @@ def record_event_feedback(
             task_id=event.id,
             task_title=event.title,
             source="event",
-            priority_level=event.relevance or "n/a",
+            priority_level=event.visibility or "n/a",
             rating=rating,
             context_json=json.dumps(event_to_dict(event)),
             created_at=_now_iso(),
@@ -227,7 +234,7 @@ def event_to_dict(record: EventRecord) -> Dict[str, Any]:
         "source": record.source,
         "source_ref": record.source_ref,
         "eid": record.eid,
-        "relevance": record.relevance,
+        "visibility": record.visibility,
         "dismissed_at": record.dismissed_at,
         "created_at": record.created_at,
         "updated_at": record.updated_at,
