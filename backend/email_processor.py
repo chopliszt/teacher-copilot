@@ -169,12 +169,17 @@ async def process_batch(
         # Event extraction is independent of the category: an email can carry a
         # meeting whether it's action_required or ignore. Persist any event the
         # model found (dedup/update by eid, else date+title — handled in events).
-        # Interim relevance bridge: surface events from mail that matters to the
-        # teacher, mute events buried in broadcasts. Group 3 replaces this with a
-        # principle-first relevance gate.
+        #
+        # Visibility (shown/hidden) comes from the relevance gate the model runs
+        # per event — judged from the EVENT, not the email category (a calendar
+        # invite she's a guest of is "shown" even if the email is "ignore"). If
+        # the model didn't return a usable value, fall back to a category bridge.
         event_data = result.get("event")
         if isinstance(event_data, dict) and event_data.get("title") and event_data.get("date"):
             attendees = event_data.get("attendees")
+            visibility = event_data.get("visibility")
+            if visibility not in ("shown", "hidden"):
+                visibility = "shown" if category in ("action_required", "weekly_schedule") else "hidden"
             events.create_or_update_event(
                 db,
                 title=str(event_data["title"]).strip(),
@@ -187,7 +192,7 @@ async def process_batch(
                 source="email",
                 source_ref=email.id,
                 eid=(event_data.get("eid") or None),
-                relevance="surfaced" if category in ("action_required", "weekly_schedule") else "muted",
+                visibility=visibility,
             )
             events_saved += 1
 

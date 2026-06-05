@@ -204,6 +204,21 @@ EVENT EXTRACTION — alongside the category, capture meetings:
                   "eid=" parameter in a calendar link
                   (…/event?action=VIEW&eid=XXXX). It is stable across updates,
                   so it lets us edit the same event instead of duplicating it.
+    - visibility: "shown" if this event should appear on the teacher's schedule,
+                  else "hidden". Decide from the EVENT itself, INDEPENDENT of the
+                  email's category — a calendar invite the teacher is personally
+                  a guest of is "shown" even when the email expects no reply (so
+                  it would otherwise be ignore). Mark "shown" when ANY of these
+                  holds: the teacher is personally expected (a named guest, or
+                  it's addressed to her), the event reshapes her teaching day (a
+                  room change, a meeting landing in a class slot), it carries
+                  something for her to prepare or hand in, or it comes from a key
+                  sender (a director, Fabiola). Mark "hidden" for a generic
+                  school-wide happening she isn't personally part of (a grade
+                  11–12 activity, an all-staff assembly with no role for her).
+                  When genuinely unsure and she might be expected, lean "shown" —
+                  a hidden real event costs more than one card she can dismiss
+                  in a tap.
 
   If an email describes no concrete event, omit "event" entirely.
 """.strip()
@@ -227,7 +242,8 @@ Format:
         "location": "<physical place, if stated>",
         "meet_link": "<video URL, if any>",
         "attendees": ["<name>", "..."],
-        "eid": "<calendar event id, if present>"
+        "eid": "<calendar event id, if present>",
+        "visibility": "shown | hidden"
       }}
     }}
   ]
