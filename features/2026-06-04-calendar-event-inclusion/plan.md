@@ -12,7 +12,7 @@ the timeline (group 4) is the payoff slice — stop and demo there before going 
      `location?` (physical/in-person place — primary), `meet_link?` (video URL —
      secondary), `attendees?`, `source` (`email`/`voice`/`weekly`/`gcal`), `source_ref?`
      (e.g. email id), `eid?` (calendar event id — dedup/update key), `relevance`
-     (`surfaced`/`muted`), `prep_note?`, `dismissed_at?`, `created_at`.
+     (`surfaced`/`muted`), `dismissed_at?`, `created_at`, `updated_at?`.
 1.2. CRUD helpers: create, list-for-day, list-upcoming, soft-dismiss (`dismissed_at`),
      set-relevance. Dismissed events stay findable (queryable by Marimba), just hidden
      from the surface.
@@ -38,9 +38,12 @@ the timeline (group 4) is the payoff slice — stop and demo there before going 
      (mirror `add_task`): Marimba parses "I have a meeting tomorrow at noon" → structured
      event; backend saves it immediately (like `add_task` today). Add a minimal manual
      add path for parity.
-2.3. **Reconcile with weekly-schedule meetings.** Today's `weekly_data["meetings"]`
-     (`main.py:_meeting_to_task`) should flow through the same `EventRecord` path / dedup
-     instead of staying a parallel concept.
+2.3. **Reconcile with weekly-schedule meetings.** → **deferred to Group 4.** Today's
+     `weekly_data["meetings"]` (`main.py:_meeting_to_task`) should flow through the same
+     `EventRecord` path / dedup — but those meetings carry only `day` / `schedule_day`
+     (1–6) + `time`, no concrete `YYYY-MM-DD`. Resolving day→date needs the rolling
+     schedule-day context that Group 4 (today's timeline) sets up, so do it there to
+     avoid a brittle standalone date guesser.
 
 ## 3. Relevance gate (clutter control, upstream)
 
