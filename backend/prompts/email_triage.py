@@ -200,6 +200,9 @@ EVENT EXTRACTION — alongside the category, capture meetings:
     - meet_link:  the video-call URL (Google Meet, etc.), kept SEPARATE from
                   and secondary to the physical location.
     - attendees:  the guest names, if listed.
+    - organizer:  who called/sent the meeting — the invite's "Organizer", or
+                  otherwise the person the email is from. Used to answer "who
+                  sent this?" without searching the inbox.
     - eid:        the Google Calendar event id if present — the value of the
                   "eid=" parameter in a calendar link
                   (…/event?action=VIEW&eid=XXXX). It is stable across updates,
@@ -242,6 +245,7 @@ Format:
         "location": "<physical place, if stated>",
         "meet_link": "<video URL, if any>",
         "attendees": ["<name>", "..."],
+        "organizer": "<who called/sent it>",
         "eid": "<calendar event id, if present>",
         "visibility": "shown | hidden"
       }}

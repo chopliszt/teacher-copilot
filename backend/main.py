@@ -997,6 +997,9 @@ def _build_task_context(
             f"When: {event.date} {when}",
             f"Where: {event.location or 'not stated in the invite'}",
         ]
+        organizer = getattr(event, "organizer", None)
+        if organizer:
+            lines.append(f"Organized / sent by: {organizer}")
         if attendees:
             lines.append(f"Attendees: {attendees}")
         if event.meet_link:

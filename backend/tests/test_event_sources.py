@@ -148,6 +148,29 @@ def test_model_visibility_hidden_overrides_action_category(db, monkeypatch):
     assert event.visibility == "hidden"
 
 
+def test_organizer_extracted_from_model(db, monkeypatch):
+    _patch_triage(monkeypatch, [{
+        "id": "m1", "category": "action_required",
+        "event": {"title": "Reunión secundaria", "date": "2026-06-05",
+                  "organizer": "Priscilla Noguera"},
+    }])
+    asyncio.run(process_batch(EmailBatch(emails=[_email()]), db))
+    event = db.execute(select(EventRecord)).scalars().one()
+    assert event.organizer == "Priscilla Noguera"
+
+
+def test_organizer_falls_back_to_email_sender(db, monkeypatch):
+    """No organizer from the model → use the email's sender (who sent it)."""
+    _patch_triage(monkeypatch, [{
+        "id": "m1", "category": "action_required",
+        "event": {"title": "Reunión secundaria", "date": "2026-06-05"},  # no organizer
+    }])
+    # _email() sender is "Priscilla Noguera <rh@goldenvalley.ed.cr>"
+    asyncio.run(process_batch(EmailBatch(emails=[_email()]), db))
+    event = db.execute(select(EventRecord)).scalars().one()
+    assert event.organizer == "Priscilla Noguera"
+
+
 def test_no_event_means_no_row(db, monkeypatch):
     _patch_triage(monkeypatch, [{"id": "m1", "category": "action_required"}])
     res = asyncio.run(process_batch(EmailBatch(emails=[_email()]), db))

@@ -9,12 +9,18 @@ import { type SchedulePeriod, type Absence, type ClassDisruption, type CalendarE
 import { LessonPlanDrawer } from './LessonPlanDrawer';
 import { EventChatDrawer } from './EventChatDrawer';
 
-// One-line summary of an event, sent to Marimba when the teacher taps 🦊 so she
-// knows which meeting "this" is.
+// Summary of an event, sent to Marimba when the teacher taps 🦊 so she knows
+// which meeting "this" is — and can answer grounded questions about it (who sent
+// it, who's coming) without searching. Mirrors the text-chat event context.
 function eventFocusSummary(event: CalendarEvent): string {
-  const when = event.start_time ? ` at ${event.start_time}` : '';
-  const where = event.location ? `, ${event.location}` : '';
-  return `${event.title} — ${event.date}${when}${where}`;
+  const when = event.start_time
+    ? ` at ${event.start_time}${event.end_time ? `–${event.end_time}` : ''}`
+    : '';
+  const parts = [`${event.title} — ${event.date}${when}`];
+  if (event.location) parts.push(`Location: ${event.location}`);
+  if (event.organizer) parts.push(`Organized / sent by: ${event.organizer}`);
+  if (event.attendees.length > 0) parts.push(`Attendees: ${event.attendees.join(', ')}`);
+  return parts.join('. ');
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -425,6 +431,10 @@ function EventCard({ event, onClose, onChat, onVoice }: EventCardProps) {
           ✕
         </button>
       </div>
+
+      {event.organizer && (
+        <p className="text-stone-400 text-xs">Organized by {event.organizer}</p>
+      )}
 
       {event.attendees.length > 0 && (
         <p className="text-stone-400 text-xs">with {event.attendees.join(', ')}</p>

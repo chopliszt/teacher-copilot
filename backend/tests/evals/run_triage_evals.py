@@ -320,8 +320,8 @@ EVAL_CASES: list[dict] = [
         "to": CAMILO,
         "cc": "",
         "expected_category": "action_required",
-        "expected_event": {"visibility": "shown"},
-        "description": "Google Calendar invite (an update). Camilo is a named guest → event shown. Physical room 'biblioteca' is in the body alongside a Meet link; an eid is present.",
+        "expected_event": {"visibility": "shown", "organizer": "Priscilla Noguera"},
+        "description": "Google Calendar invite (an update). Camilo is a named guest → event shown. Physical room 'biblioteca' is in the body alongside a Meet link; an eid is present; Priscilla Noguera is the organizer (answers 'who sent this?').",
     },
     # ── EVENT — school-wide assembly, no personal role → hidden ────────────
     {
@@ -398,7 +398,13 @@ async def run_all_evals(verbose: bool = False) -> int:
                 got_visibility = event.get("visibility") if event else "(no event)"
                 ok = bool(event) and got_visibility == expected["visibility"]
                 got_desc = got_visibility
-                want_desc = expected["visibility"]
+                want_desc = f"visibility={expected['visibility']}"
+                # Optionally also assert the organizer ("who sent this?").
+                if expected.get("organizer"):
+                    got_org = (event or {}).get("organizer") or ""
+                    ok = ok and expected["organizer"].lower() in got_org.lower()
+                    want_desc += f", organizer~{expected['organizer']}"
+                    got_desc = f"{got_visibility} / organizer={got_org or '(none)'}"
 
             if ok:
                 event_passed += 1

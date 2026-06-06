@@ -121,6 +121,7 @@ def test_event_chat_context_includes_real_fields():
         location="biblioteca",
         meet_link="https://meet.google.com/abc",
         attendees=json.dumps(["Priscilla Noguera", "Camilo Infante"]),
+        organizer="Priscilla Noguera",
     )
     context = main._build_task_context(
         source="event", title="Reunión secundaria", email=None, event=event
@@ -128,8 +129,9 @@ def test_event_chat_context_includes_real_fields():
     assert "Reunión secundaria" in context
     assert "2026-06-05" in context and "12:00–12:45" in context
     assert "biblioteca" in context                 # physical location surfaced
-    assert "Priscilla Noguera" in context          # attendees surfaced
     assert "meet.google.com/abc" in context
+    # organizer surfaced so "who sent this?" answers without an inbox search
+    assert "Organized / sent by: Priscilla Noguera" in context
 
 
 # ── 4c: weekly-meeting reconciliation ────────────────────────────────────────

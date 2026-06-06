@@ -264,6 +264,10 @@ class EventRecord(Base):
     location = Column(String, nullable=True)  # physical place — primary
     meet_link = Column(String, nullable=True)  # video URL — secondary
     attendees = Column(Text, nullable=True)  # JSON-encoded list[str]
+    # Who called/sent the meeting — the invite's organizer, or the email sender
+    # for email-sourced events. Lets Marimba answer "who sent this?" without
+    # searching the inbox.
+    organizer = Column(String, nullable=True)
     source = Column(String, nullable=False)  # where it came from: email | voice | weekly | gcal
     # id of the origin record in that source, so we can link back to it.
     # For source="email" this is the Gmail message id; null for voice-added events.
@@ -300,6 +304,7 @@ def _ensure_columns() -> None:
         ("important_emails", "rfc822_message_id", "TEXT"),
         ("important_emails", "cc",                "TEXT"),
         ("important_emails", "dismissed_at",      "TEXT"),
+        ("events",           "organizer",         "TEXT"),
     ]
 
     inspector = inspect(engine)

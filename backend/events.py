@@ -72,6 +72,7 @@ def create_or_update_event(
     location: Optional[str] = None,
     meet_link: Optional[str] = None,
     attendees: Optional[List[str]] = None,
+    organizer: Optional[str] = None,  # who called/sent it (invite organizer or email sender)
     source_ref: Optional[str] = None,  # id of the origin record (e.g. Gmail message id)
     eid: Optional[str] = None,
     visibility: str = "shown",  # shown | hidden — set by the relevance gate
@@ -101,6 +102,8 @@ def create_or_update_event(
         existing.location = location
         existing.meet_link = meet_link
         existing.attendees = _attendees_to_json(attendees)
+        if organizer:
+            existing.organizer = organizer
         existing.visibility = visibility
         if eid:
             existing.eid = eid
@@ -118,6 +121,7 @@ def create_or_update_event(
         location=location,
         meet_link=meet_link,
         attendees=_attendees_to_json(attendees),
+        organizer=organizer,
         source=source,
         source_ref=source_ref,
         eid=eid,
@@ -231,6 +235,7 @@ def event_to_dict(record: EventRecord) -> Dict[str, Any]:
         "location": record.location,
         "meet_link": record.meet_link,
         "attendees": json.loads(record.attendees) if record.attendees else [],
+        "organizer": record.organizer,
         "source": record.source,
         "source_ref": record.source_ref,
         "eid": record.eid,

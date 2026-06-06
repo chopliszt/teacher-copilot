@@ -26,6 +26,14 @@ def _extract_email_address(raw: str) -> str:
     return (m.group(1) if m else raw).strip()
 
 
+def _sender_display_name(raw: str) -> str:
+    """The human name from a From header ('Priscilla Noguera <rh@…>' → 'Priscilla
+    Noguera'); falls back to the raw value when there's no display name."""
+    import re
+    m = re.match(r'\s*"?([^"<]+?)"?\s*<', raw)
+    return (m.group(1).strip() if m else raw).strip()
+
+
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
 class EmailLabel(BaseModel):
@@ -180,6 +188,9 @@ async def process_batch(
             visibility = event_data.get("visibility")
             if visibility not in ("shown", "hidden"):
                 visibility = "shown" if category in ("action_required", "weekly_schedule") else "hidden"
+            # The model usually names the organizer; if not, the email's sender
+            # is who sent it, so fall back to that.
+            organizer = (event_data.get("organizer") or "").strip() or _sender_display_name(email.sender)
             events.create_or_update_event(
                 db,
                 title=str(event_data["title"]).strip(),
@@ -189,6 +200,7 @@ async def process_batch(
                 location=(event_data.get("location") or None),
                 meet_link=(event_data.get("meet_link") or None),
                 attendees=attendees if isinstance(attendees, list) else None,
+                organizer=organizer,
                 source="email",
                 source_ref=email.id,
                 eid=(event_data.get("eid") or None),

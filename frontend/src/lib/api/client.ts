@@ -196,6 +196,7 @@ export const EventSchema = z.object({
   location: z.string().nullable(),        // physical place — primary
   meet_link: z.string().nullable(),       // video URL — secondary
   attendees: z.array(z.string()),
+  organizer: z.string().nullable(),       // who called/sent it
   source: z.string(),                     // email | voice | weekly | gcal
   source_ref: z.string().nullable(),
   eid: z.string().nullable(),
