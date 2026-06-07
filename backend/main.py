@@ -1499,6 +1499,31 @@ async def list_events(
     }
 
 
+@app.get("/api/events/upcoming")
+async def list_upcoming_events_endpoint(
+    after: Optional[str] = None,
+    days: int = 2,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Shown, not-dismissed events in the next `days` days — the "Coming up" peek.
+    Strictly after `after` (default today). Note: weekly-newsletter meetings only
+    map onto today (no future date), so this currently surfaces email/voice and
+    calendar-dated future events; weekly future meetings are a later follow-up.
+    """
+    import events as events_module
+    from datetime import date as date_class
+
+    after_date = after or date_class.today().isoformat()
+    records = events_module.list_upcoming_events(db, after_date, days)
+    return {
+        "after": after_date,
+        "days": days,
+        "events": [events_module.event_to_dict(record) for record in records],
+        "count": len(records),
+    }
+
+
 @app.post("/api/events/{event_id}/dismiss")
 async def dismiss_event_endpoint(
     event_id: str, db: Session = Depends(get_db)

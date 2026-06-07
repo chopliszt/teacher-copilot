@@ -220,6 +220,19 @@ export async function fetchEvents(date: string): Promise<EventsResponse> {
   return EventsResponseSchema.parse(response.data);
 }
 
+export const UpcomingEventsResponseSchema = z.object({
+  after: z.string(),
+  days: z.number(),
+  events: z.array(EventSchema),
+  count: z.number(),
+});
+export type UpcomingEventsResponse = z.infer<typeof UpcomingEventsResponseSchema>;
+
+export async function fetchUpcomingEvents(after: string, days: number): Promise<UpcomingEventsResponse> {
+  const response = await httpClient.get('/api/events/upcoming', { params: { after, days } });
+  return UpcomingEventsResponseSchema.parse(response.data);
+}
+
 export async function dismissEvent(id: string): Promise<void> {
   await httpClient.post(`/api/events/${id}/dismiss`);
 }

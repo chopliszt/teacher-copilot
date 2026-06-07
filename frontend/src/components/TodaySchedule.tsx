@@ -4,10 +4,19 @@ import { useAbsences } from '../lib/hooks/useAbsences';
 import { useWeeklySchedule } from '../lib/hooks/useWeeklySchedule';
 import { useLastSession, useLogSession } from '../lib/hooks/useClassSession';
 import { useStudentFlags } from '../lib/hooks/useStudentFlags';
-import { useEvents, useDismissEvent } from '../lib/hooks/useEvents';
+import { useEvents, useUpcomingEvents, useDismissEvent } from '../lib/hooks/useEvents';
 import { type SchedulePeriod, type Absence, type ClassDisruption, type CalendarEvent } from '../lib/api/client';
 import { LessonPlanDrawer } from './LessonPlanDrawer';
 import { EventChatDrawer } from './EventChatDrawer';
+
+// "Coming up" date label: "Tomorrow" for the next day, else a short weekday.
+function upcomingDateLabel(dateStr: string, today: string): string {
+  const target = new Date(`${dateStr}T00:00:00`);
+  const base = new Date(`${today}T00:00:00`);
+  const diffDays = Math.round((target.getTime() - base.getTime()) / 86_400_000);
+  if (diffDays === 1) return 'Tomorrow';
+  return target.toLocaleDateString(undefined, { weekday: 'short' });
+}
 
 // Summary of an event, sent to Marimba when the teacher taps 🦊 so she knows
 // which meeting "this" is — and can answer grounded questions about it (who sent
@@ -498,7 +507,8 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0, peekRequest, ope
   // en-CA gives YYYY-MM-DD in local time, matching the backend's date.today().
   const today = new Date().toLocaleDateString('en-CA');
   const { data: eventsData } = useEvents(today);
-  const dismissEvent = useDismissEvent(today);
+  const { data: upcomingData } = useUpcomingEvents(today, 2);
+  const dismissEvent = useDismissEvent();
 
   // Respond to voice-triggered group opens — always snap back to today
   useEffect(() => {
@@ -580,7 +590,10 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0, peekRequest, ope
   // Events only map cleanly to TODAY's calendar date, so only merge them when
   // we're viewing today (not a peeked rotation day).
   const eventsToday: CalendarEvent[] = peekOffset === 0 ? (eventsData?.events ?? []) : [];
-  const selectedEvent = eventsToday.find((e) => e.id === selectedEventId) ?? null;
+  const upcomingEvents: CalendarEvent[] = peekOffset === 0 ? (upcomingData?.events ?? []) : [];
+  // Selection is shared across today's chips and the "Coming up" list.
+  const selectedEvent =
+    [...eventsToday, ...upcomingEvents].find((e) => e.id === selectedEventId) ?? null;
 
   const handleChipClick = (group: string) => {
     setSelectedEventId(null);
@@ -710,7 +723,7 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0, peekRequest, ope
             />
           )}
 
-          {selectedEvent && (
+          {selectedEvent && eventsToday.some((e) => e.id === selectedEvent.id) && (
             <EventCard
               event={selectedEvent}
               onClose={() => setSelectedEventId(null)}
@@ -723,6 +736,54 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0, peekRequest, ope
         <p className="text-stone-700 text-sm">
           {isWeekend && peekOffset === 0 ? 'Enjoy the rest.' : 'No classes scheduled.'}
         </p>
+      )}
+
+      {/* Coming up — quiet heads-up for the next couple of days. Only rendered
+          when there's something relevant; absent (no empty state) otherwise. It
+          graduates onto the timeline above once its day becomes today. */}
+      {peekOffset === 0 && upcomingEvents.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-stone-600 text-xs font-semibold tracking-widest uppercase mb-2">
+            Coming up
+          </h3>
+          <div className="space-y-1">
+            {upcomingEvents.map((event) => (
+              <div key={event.id} className="relative">
+                <button
+                  onClick={() => handleEventClick(event.id)}
+                  className="w-full text-left flex items-center gap-2 pr-6 py-1.5 transition-colors group"
+                >
+                  <span className="text-amber-500/50 flex-shrink-0"><CalendarIcon /></span>
+                  <span className="text-stone-500 text-xs flex-shrink-0">
+                    {upcomingDateLabel(event.date, today)}{event.start_time ? ` ${event.start_time}` : ''}
+                  </span>
+                  <span className="text-stone-300 group-hover:text-stone-100 text-xs truncate transition-colors">
+                    · {event.title}
+                  </span>
+                  {event.location && (
+                    <span className="text-stone-600 text-xs truncate">— {event.location}</span>
+                  )}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); dismissEvent.mutate(event.id); }}
+                  aria-label={`Dismiss ${event.title}`}
+                  className="absolute top-1.5 right-1 text-stone-700 hover:text-stone-400 text-xs leading-none transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {selectedEvent && upcomingEvents.some((e) => e.id === selectedEvent.id) && (
+            <EventCard
+              event={selectedEvent}
+              onClose={() => setSelectedEventId(null)}
+              onChat={() => setChatEvent(selectedEvent)}
+              onVoice={() => onVoiceAboutEvent?.(eventFocusSummary(selectedEvent))}
+            />
+          )}
+        </div>
       )}
 
       <EventChatDrawer event={chatEvent} onClose={() => setChatEvent(null)} />

@@ -66,6 +66,20 @@ def test_get_events_returns_shown_events_for_a_day(test_db):
     assert body["events"][0]["location"] == "library"
 
 
+def test_upcoming_returns_only_within_horizon(test_db):
+    """'Coming up' shows shown events after today, within the day window."""
+    db = test_db()
+    events.create_or_update_event(db, title="Tomorrow mtg", date="2026-06-06", source="email")
+    events.create_or_update_event(db, title="Day after", date="2026-06-07", source="email")
+    events.create_or_update_event(db, title="Next week", date="2026-06-12", source="email")
+    events.create_or_update_event(db, title="Hidden soon", date="2026-06-06", source="email", visibility="hidden")
+    db.close()
+
+    body = client.get("/api/events/upcoming", params={"after": "2026-06-05", "days": 2}).json()
+    titles = [event["title"] for event in body["events"]]
+    assert titles == ["Tomorrow mtg", "Day after"]   # within 2 days, hidden excluded, ordered
+
+
 def test_get_events_filters_by_date(test_db):
     db = test_db()
     events.create_or_update_event(db, title="Today", date="2026-06-05", source="voice")

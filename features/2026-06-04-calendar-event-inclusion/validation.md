@@ -104,7 +104,10 @@ Sections 1–6 ✅, tree clean of secrets, existing tests still pass. **Not requ
 - [ ] **"One tab" preserved:** the teacher never has to leave the app to know about a
       meeting; Google Calendar is a backup alarm, not the source of truth.
 
-## Pending sign-off (blocks group 5 only)
+## "Coming up" (group 5) — ✅ approved + built
 
-- [ ] Teacher has seen the **"Coming up" mockup** and decided: build it or not, and the
-      look-ahead horizon (tomorrow vs. 48h).
+- [x] Teacher saw the mockup and chose to build it, horizon = **next 2 days**.
+- [ ] Shows shown, not-dismissed events for the next 2 days; absent (no empty state) when
+      nothing's upcoming; tap expands the event card; `×` dismisses.
+- Known limitation: future *weekly-newsletter* meetings aren't included yet (they only map
+  to today) — a later follow-up.

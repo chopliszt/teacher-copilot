@@ -75,14 +75,18 @@ the timeline (group 4) is the payoff slice — stop and demo there before going 
 4.7. ~~Calendar export / push to Google Calendar~~ — **dropped.** The teacher only wants
      the event living in the app / Marimba; there is no send-to-Google-Calendar flow.
 
-## 5. ⏸ "Coming up" heads-up (DO NOT BUILD YET)
+## 5. "Coming up" heads-up — ✅ built (teacher approved, horizon = next 2 days)
 
-5.1. First: produce a static mockup of the "Coming up" line and get teacher sign-off on
-     usefulness + look-ahead horizon (tomorrow vs. 48h). **Gate the rest of group 5 on
-     that approval.**
-5.2. (after approval) Backend: list upcoming `shown` events within the chosen horizon.
-5.3. (after approval) Frontend: render the quiet one-line heads-up; it graduates onto the
-     timeline when its day arrives; one-tap dismiss.
+5.1. Mockup shown and approved; horizon chosen: **next 2 days** (tomorrow + the day after).
+5.2. Backend: `GET /api/events/upcoming?after=&days=2` → shown, not-dismissed events
+     strictly after today within the window (`events.list_upcoming_events`).
+5.3. Frontend: quiet one-line-per-event "Coming up" list below today's timeline, only
+     rendered when non-empty; tap to expand the same `EventCard` (Chat + 🦊); one-tap `×`
+     dismiss; graduates onto the timeline when its day becomes today.
+5.4. **Known limitation:** weekly-newsletter meetings only map onto *today* (no future
+     date), so "Coming up" currently surfaces email/voice/calendar-dated future events.
+     Folding future weekly meetings in needs a schedule_day→future-date resolver — a later
+     follow-up.
 
 ## 6. 🔭 Google Calendar read (phase 2 — after slice 1 proves out)
 
