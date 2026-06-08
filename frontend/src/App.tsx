@@ -122,7 +122,9 @@ export default function App() {
 
   const syncEmails = useSyncEmails();
   // Fire-and-forget on mount — silently syncs Gmail in the background so
-  // Needs Action and Top 3 are fresh by the time you scroll down.
+  // Needs Action and Top 3 are fresh by the time you scroll down. Intentionally
+  // runs once: syncEmails is omitted so a new mutation object can't re-fire it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { syncEmails.mutate(); }, []);
 
   if (isLoading) return <LoadingScreen />;

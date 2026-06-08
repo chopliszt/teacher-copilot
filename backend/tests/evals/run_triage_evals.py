@@ -310,6 +310,67 @@ EVAL_CASES: list[dict] = [
         "expected_category": "ignore",
         "description": "PRECISION TRAP: director form scoped to 'un docente homeroom por grupo' for 8A1/8A2/11A1. Teacher is homeroom of 9A2 ONLY (and doesn't teach 11), so NOT his task. Needs the teaching≠homeroom discriminator; without it the model over-flags because it teaches 8A1.",
     },
+    # ── RECALL — director 1:1 reply, scheduling ask wrapped in pleasantries ──
+    # The real Jun-5 miss, verbatim. A short personal reply from the PYP
+    # director that is ~75% courtesies, with the one ask ("¿puedes agendarlo?")
+    # sandwiched between "estoy para servir" and "Feliz fin de semana". Small-3
+    # over-weighted the closing pleasantry and dropped the embedded ask.
+    # Classification guard: pleasantries must never cancel an ask.
+    {
+        "id": "eval_kim_schedule_reply",
+        "subject": "Re: Disponibilidad para reunión",
+        "snippet": "Buenas tardes Camilo. Con todo gusto, estoy para servir. Tengo espacio el miércoles 10 a las 2:00 pm ¿puedes agendarlo? Feliz fin de semana",
+        "body": "Buenas tardes Camilo \n\nCon todo gusto, estoy para servir. \nTengo espacio el miércoles 10 a las 2:00 pm ¿puedes agendarlo?\n\nFeliz fin de semana",
+        "sender": '"Kimberly María Fonseca Arguello" <kimberly.fonseca@goldenvalley.ed.cr>',
+        "to": CAMILO,
+        "cc": "",
+        "expected_category": "action_required",
+        "description": "Director's personal reply, mostly pleasantries, one embedded scheduling ask. The real Jun-5 miss — pleasantries must not cancel the ask.",
+    },
+    # ── RECALL — same reply WITH thread context → event title resolvable ──────
+    # The booster the standalone case can't test: the reply's "agendarlo" points
+    # back at the meeting Camilo proposed in the earlier turn. With that prior
+    # turn in context the model can both classify AND name the event — the title
+    # lives in the earlier message, the reply only refers to it. Production
+    # extracts an event only when a title is present, so title_present is the
+    # check that proves thread context actually unlocked the meeting.
+    {
+        "id": "eval_kim_schedule_reply_threaded",
+        "subject": "Re: Reunión de seguimiento — comité de convivencia 9A2",
+        "snippet": "Buenas tardes Camilo. Con todo gusto, estoy para servir. Tengo espacio el miércoles 10 a las 2:00 pm ¿puedes agendarlo? Feliz fin de semana",
+        "body": "Buenas tardes Camilo \n\nCon todo gusto, estoy para servir. \nTengo espacio el miércoles 10 a las 2:00 pm ¿puedes agendarlo?\n\nFeliz fin de semana",
+        "thread_context": (
+            'From "Camilo Infante" <camilo.infante@goldenvalley.ed.cr>: '
+            "Hola Kimberly, ¿podríamos agendar una reunión de seguimiento del "
+            "comité de convivencia de 9A2 esta semana? Quedo atento a su "
+            "disponibilidad."
+        ),
+        "sender": '"Kimberly María Fonseca Arguello" <kimberly.fonseca@goldenvalley.ed.cr>',
+        "to": CAMILO,
+        "cc": "",
+        "expected_category": "action_required",
+        "expected_event": {"visibility": "shown", "title_present": True},
+        "description": "Same reply, now with the earlier turn in context. 'agendarlo' resolves to the meeting Camilo proposed → action_required AND an event whose title is drawn from the prior turn.",
+    },
+    # ── PRECISION — director 1:1 reply, courtesy end-to-end, NO ask → ignore ──
+    # The boundary partner to eval_kim_schedule_reply: same director, same kind
+    # of personal Re: reply, the same warm closings ("estoy para servir", "feliz
+    # fin de semana") — but nothing is asked back. Guards the new recall lean
+    # ("pleasantries never cancel an ask") from tipping the other way into "any
+    # warm director reply is action_required". This is the exact shape the recall
+    # cases above target, so it's the precision case that proves the lean didn't
+    # eat precision.
+    {
+        "id": "eval_kim_reply_no_ask",
+        "subject": "Re: Información del comité",
+        "snippet": "Gracias Camilo, con esto es suficiente, ya quedó todo claro. Estoy para servir. Feliz fin de semana.",
+        "body": "Gracias Camilo, con esto es suficiente, ya quedó todo claro. No necesito nada más de momento. Estoy para servir. Feliz fin de semana, un abrazo.",
+        "sender": '"Kimberly María Fonseca Arguello" <kimberly.fonseca@goldenvalley.ed.cr>',
+        "to": CAMILO,
+        "cc": "",
+        "expected_category": "ignore",
+        "description": "Director's personal reply, warm closings, but nothing asked back. Precision guard for the pleasantry-recall lean — must stay ignore.",
+    },
     # ── EVENT — calendar invite where the teacher is a named guest → shown ──
     {
         "id": "eval_event_calendar_invite",
@@ -405,6 +466,17 @@ async def run_all_evals(verbose: bool = False) -> int:
                     ok = ok and expected["organizer"].lower() in got_org.lower()
                     want_desc += f", organizer~{expected['organizer']}"
                     got_desc = f"{got_visibility} / organizer={got_org or '(none)'}"
+                # Optionally assert a title was extracted at all. The production
+                # gate (events.create_or_update_event) drops any event without a
+                # title, so "has a title" is what decides whether the meeting
+                # actually lands on the schedule — the key check for the
+                # thread-context case where the title lives in the earlier turn,
+                # not the reply itself.
+                if expected.get("title_present"):
+                    got_title = ((event or {}).get("title") or "").strip()
+                    ok = ok and bool(got_title)
+                    want_desc += ", title present"
+                    got_desc = f"{got_desc} / title={got_title or '(none)'}"
 
             if ok:
                 event_passed += 1

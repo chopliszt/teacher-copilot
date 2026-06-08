@@ -163,8 +163,21 @@ HOW TO DECIDE — addressee first, then ask:
   one card the teacher can dismiss in a tap. This lean applies ONLY to mail
   addressed to me, never to broadcast or Cc-only mail.
 
-  Pure pleasantries addressed to me with no ask ("Gracias Camilo", "Feliz
-  fin de semana", an FYI that says "no need to reply") → ignore.
+  The ASK decides the category — never the courtesies around it. A greeting, a
+  thank-you, a "feliz fin de semana", a warm "estoy para servir" are wrapping;
+  they do not turn an ask into a non-ask. Read the WHOLE message for a real
+  request to me — it is often a single clause sitting between the greeting and
+  the sign-off ("...¿puedes agendarlo? Feliz fin de semana"). If a real ask is
+  anywhere in the message → action_required. Only when the whole message asks
+  for nothing — it is courtesy end to end — is it ignore ("Gracias Camilo, con
+  esto es suficiente", an FYI that says "no need to reply").
+
+  USING THREAD CONTEXT — some emails include an "Earlier in this thread" block
+  with the previous turns of the conversation. A reply often points back at it
+  instead of restating itself: "¿puedes agendarlo?" means "schedule the meeting
+  we just discussed". Read that prior context to (a) understand what the reply
+  is actually asking, and (b) name an event the reply only refers to — the
+  meeting's title/topic usually lives in the earlier turn, not the reply.
 
 If the teacher's personal context (provided below) names specific
 collaborators or describes ongoing initiatives they are organizing,
@@ -331,6 +344,12 @@ async def triage_batch(emails: list[dict[str, Any]]) -> list[dict[str, Any]]:
             lines.append(f'Cc: {cc}')
         lines.append(f'Subject: {e["subject"]}')
         lines.append(f'Snippet: {e["snippet"]}')
+        # Earlier turns in the thread, when present, come BEFORE the body so the
+        # model reads the conversation in order and can resolve what a reply
+        # points back at.
+        thread_context = (e.get("thread_context") or "").strip()
+        if thread_context:
+            lines.append(f'Earlier in this thread:\n{thread_context}')
         body = (e.get("body") or "").strip()
         if body:
             body_excerpt = body[:BODY_EXCERPT_CHARS].replace("\n", " ")

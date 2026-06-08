@@ -106,6 +106,9 @@ export function MeetingRecorder({
   // Populate email fields when the draft arrives
   useEffect(() => {
     if (draft && state === 'composing') {
+      // Populating the compose fields when the async draft arrives — syncing
+      // local state to external data, not a render cascade.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (!emailSubject) setEmailSubject(draft.suggested_subject);
       if (!emailBody) setEmailBody(draft.email_body);
     }

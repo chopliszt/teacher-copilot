@@ -133,7 +133,7 @@ export function LessonPlanDrawer({ group, initialTab = 'plan', onClose }: Lesson
     return () => {
       cancelled = true;
     };
-  }, [group, activeTab, planLoaded]);
+  }, [group, activeTab, planLoaded, queryClient]);
 
   // Lazy-load history the first time the tab is opened.
   useEffect(() => {

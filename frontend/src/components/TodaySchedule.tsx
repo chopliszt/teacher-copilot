@@ -85,6 +85,8 @@ function BriefingPanel({ period, absentStudents, disruptions, onClose, autoOpenP
   // Voice-triggered: when the nonce changes, open this group's lesson-plan drawer.
   useEffect(() => {
     if (autoOpenPlanNonce) {
+      // Syncing UI to an external voice signal (a nonce), not a render cascade.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPlanInitialTab('plan');
       setPlanLessonGroup(period.group);
     }
@@ -535,6 +537,9 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0, peekRequest, ope
       setSelectedGroup(null);
       setSelectedEventId(null);
     }
+    // Keyed on the nonce only — the request object itself is intentionally
+    // omitted so the jump fires once per voice command, not on every re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peekRequest?.nonce]);
 
   // Voice "plan the lesson for X" — snap to today and select that group so its
@@ -544,6 +549,9 @@ export function TodaySchedule({ openGroup, closeAllCounter = 0, peekRequest, ope
       setPeekOffset(0);
       setSelectedGroup(openLessonPlan.group);
     }
+    // Keyed on the nonce only — the request object itself is intentionally
+    // omitted so the drawer opens once per voice command, not on every re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openLessonPlan?.nonce]);
 
   if (isLoading || !schedule) return null;

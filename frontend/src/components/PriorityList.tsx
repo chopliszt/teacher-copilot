@@ -46,11 +46,15 @@ export function PriorityList({ priorities, openPriorityId, closeAllCounter = 0 }
 
   useEffect(() => {
     if (openPriorityId !== undefined) {
+      // Syncing UI to an external voice signal, not a render cascade.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveId(openPriorityId);
     }
   }, [openPriorityId]);
 
   useEffect(() => {
+    // Syncing UI to an external voice signal, not a render cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (closeAllCounter > 0) setActiveId(null);
   }, [closeAllCounter]);
 

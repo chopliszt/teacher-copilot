@@ -30,6 +30,9 @@ export function SettingsButton() {
 
   useEffect(() => {
     if (open) {
+      // Seeding the drafts from fetched preferences when the panel opens —
+      // syncing local state to external data, not a render cascade.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIgnoreDraft(data?.ignore_rules ?? '');
       setPersonalDraft(data?.personal_context ?? '');
     }

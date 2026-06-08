@@ -152,7 +152,7 @@ export function useMeetingRecorder(): UseMeetingRecorderReturn {
       setState('error');
       setErrorMessage(extractErrorMessage(err, 'No se pudo procesar la grabación.'));
     }
-  }, []);
+  }, [saveToDownloads]);
 
   const startRecording = useCallback(async () => {
     try {

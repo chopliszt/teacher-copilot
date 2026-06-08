@@ -55,6 +55,11 @@ def _get_gmail_service():
 
 LABEL_NAME = "marimba-processed"
 
+# How many characters of each earlier thread message we feed to triage. A reply
+# only needs enough of the prior turn to resolve what it points at ("agendarlo"
+# → the meeting proposed before); the full history would just cost tokens.
+THREAD_CONTEXT_CHARS = 1500
+
 
 def _extract_body(payload: Dict[str, Any]) -> str:
     """
@@ -99,6 +104,62 @@ def _extract_body(payload: Dict[str, Any]) -> str:
         stripped = re.sub(r"\s+\n", "\n", stripped)
         return stripped.strip()
     return ""
+
+
+def _fetch_thread_context(service, thread_id: str, current_message_id: str) -> str:
+    """
+    For a reply, return a compact transcript of the EARLIER messages in its
+    thread so triage can resolve what the reply leaves implicit. "¿puedes
+    agendarlo?" only means something against the meeting proposed earlier in the
+    conversation — without that prior turn the model reads the reply blind, sees
+    a one-clause ask wrapped in pleasantries, and is liable to drop it.
+
+    Returns "" when there's no prior context. Best-effort: a thread fetch must
+    never break a sync, so any failure yields "" and the email is triaged on its
+    own (exactly the previous behaviour).
+    """
+    if not thread_id:
+        return ""
+    try:
+        thread = (
+            service.users()
+            .threads()
+            .get(userId="me", id=thread_id, format="full")
+            .execute()
+        )
+    except Exception as error:
+        print(f"[Gmail Connector] Could not fetch thread {thread_id}: {error}")
+        return ""
+
+    messages = thread.get("messages", [])
+    # Gmail returns thread messages in chronological order, so everything up to
+    # the message we're triaging is prior context. Stop at it — we never want to
+    # feed the model the reply itself back as "context".
+    prior = []
+    found_current = False
+    for message in messages:
+        if message.get("id") == current_message_id:
+            found_current = True
+            break
+        prior.append(message)
+    # If we never located the message we're triaging, we can't tell which turns
+    # actually precede it — bail rather than risk feeding the reply back as its
+    # own "earlier context".
+    if not found_current or not prior:
+        return ""
+
+    # The two most recent prior turns carry almost all the referent value; older
+    # turns rarely change the classification and just spend tokens.
+    parts: list[str] = []
+    for message in prior[-2:]:
+        headers = message.get("payload", {}).get("headers", [])
+        sender = next(
+            (h["value"] for h in headers if h["name"].lower() == "from"), ""
+        )
+        body = _extract_body(message.get("payload", {}))
+        excerpt = (body or message.get("snippet", "")).strip().replace("\n", " ")
+        parts.append(f"From {sender}: {excerpt[:THREAD_CONTEXT_CHARS]}")
+    return "\n".join(parts)
 
 
 def get_or_create_label(service) -> str:
@@ -183,11 +244,24 @@ def fetch_unread_emails() -> List[IncomingEmail]:
             snippet = message_detail.get("snippet", "")
             body = _extract_body(message_detail.get("payload", {}))
 
+            # Replies and forwards often carry an ask whose referent lives
+            # earlier in the thread ("agendarlo" → the meeting proposed before).
+            # Only these need prior context, so we gate the extra thread fetch on
+            # the Re:/Fwd: subject prefix rather than calling it for every email.
+            thread_id = message_detail.get("threadId", msg_id)
+            thread_context = ""
+            # Cover both locales' prefixes — Spanish Gmail uses "RE:" for replies
+            # and "RV:" for forwards, English uses "Re:"/"Fwd:"/"Fw:".
+            subject_prefix = subject.lower().strip()
+            if subject_prefix.startswith(("re:", "fwd:", "fw:", "rv:")):
+                thread_context = _fetch_thread_context(service, thread_id, msg_id)
+
             incoming_email_data = {
                 "id": msg_id,
-                "threadId": message_detail.get("threadId", msg_id),
+                "threadId": thread_id,
                 "snippet": snippet,
                 "body": body,
+                "thread_context": thread_context,
                 "rfc822_message_id": rfc822_id,
                 "internalDate": message_detail.get("internalDate", "0"),
                 "Subject": subject,

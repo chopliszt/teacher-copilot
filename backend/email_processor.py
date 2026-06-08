@@ -63,6 +63,11 @@ class IncomingEmail(BaseModel):
     cc:                 str = Field(alias="Cc", default="")
     body:               str = ""
     rfc822_message_id:  str = ""
+    # Compact transcript of the EARLIER messages in this email's thread, set by
+    # the Gmail connector for replies/forwards. Lets triage resolve referents the
+    # reply leaves implicit ("agendarlo" → the meeting proposed before). Empty
+    # for fresh emails or when there's no prior context.
+    thread_context:     str = ""
 
 
 class EmailBatch(BaseModel):
@@ -98,6 +103,9 @@ async def process_batch(
             "subject": e.subject,
             "snippet": e.snippet,
             "body": e.body or "",
+            # Earlier turns in the thread (replies/forwards only) so an implicit
+            # ask like "agendarlo" has the referent it points back at.
+            "thread_context": e.thread_context or "",
             # From/To/Cc let the model gate on "addressed to me" vs broadcast/
             # Cc-only — without these the key-sender and CC rules ran blind.
             "sender": e.sender,
