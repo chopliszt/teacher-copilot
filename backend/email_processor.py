@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from database import ImportantEmailRecord, AbsenceRecord, EmailRecipientRecord
 from prompts.email_triage import triage_batch
+import events
 
 
 def _extract_email_address(raw: str) -> str:
@@ -23,6 +24,14 @@ def _extract_email_address(raw: str) -> str:
     import re
     m = re.search(r"<([^>]+)>", raw)
     return (m.group(1) if m else raw).strip()
+
+
+def _sender_display_name(raw: str) -> str:
+    """The human name from a From header ('Priscilla Noguera <rh@…>' → 'Priscilla
+    Noguera'); falls back to the raw value when there's no display name."""
+    import re
+    m = re.match(r'\s*"?([^"<]+?)"?\s*<', raw)
+    return (m.group(1).strip() if m else raw).strip()
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -104,6 +113,7 @@ async def process_batch(
 
     emails_saved  = 0
     absences_saved = 0
+    events_saved   = 0
     # Gmail message ids of absence emails in this batch. They're pure FYI and
     # already captured in the app, so the caller marks them read in Gmail to
     # keep the teacher's unread count honest (see _run_gmail_sync).
@@ -162,7 +172,41 @@ async def process_batch(
                 ))
                 absences_saved += 1
 
-        # "ignore" → do nothing
+        # "ignore" → no important-email row
+
+        # Event extraction is independent of the category: an email can carry a
+        # meeting whether it's action_required or ignore. Persist any event the
+        # model found (dedup/update by eid, else date+title — handled in events).
+        #
+        # Visibility (shown/hidden) comes from the relevance gate the model runs
+        # per event — judged from the EVENT, not the email category (a calendar
+        # invite she's a guest of is "shown" even if the email is "ignore"). If
+        # the model didn't return a usable value, fall back to a category bridge.
+        event_data = result.get("event")
+        if isinstance(event_data, dict) and event_data.get("title") and event_data.get("date"):
+            attendees = event_data.get("attendees")
+            visibility = event_data.get("visibility")
+            if visibility not in ("shown", "hidden"):
+                visibility = "shown" if category in ("action_required", "weekly_schedule") else "hidden"
+            # The model usually names the organizer; if not, the email's sender
+            # is who sent it, so fall back to that.
+            organizer = (event_data.get("organizer") or "").strip() or _sender_display_name(email.sender)
+            events.create_or_update_event(
+                db,
+                title=str(event_data["title"]).strip(),
+                date=str(event_data["date"]).strip(),
+                start_time=(event_data.get("start_time") or None),
+                end_time=(event_data.get("end_time") or None),
+                location=(event_data.get("location") or None),
+                meet_link=(event_data.get("meet_link") or None),
+                attendees=attendees if isinstance(attendees, list) else None,
+                organizer=organizer,
+                source="email",
+                source_ref=email.id,
+                eid=(event_data.get("eid") or None),
+                visibility=visibility,
+            )
+            events_saved += 1
 
     db.commit()
 
@@ -171,5 +215,6 @@ async def process_batch(
         "emails_processed": len(emails),
         "emails_saved": emails_saved,
         "absences_saved": absences_saved,
+        "events_saved": events_saved,
         "absence_ids": absence_ids,
     }

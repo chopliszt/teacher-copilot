@@ -229,6 +229,56 @@ class EmailRecipientRecord(Base):
     last_used_at = Column(String, nullable=False)  # ISO-8601 UTC
 
 
+class EventRecord(Base):
+    """
+    A calendar event / meeting the teacher should know about — distinct from
+    MeetingRecord (which stores *recorded & summarized* meetings). An event is a
+    time-anchored commitment that is not a class: a department meeting, an AI
+    training, a director's call.
+
+    Sourced from triaged emails (incl. Google Calendar invite emails), manual /
+    voice add, the weekly newsletter, or — later — Google Calendar read.
+
+    location vs. meet_link: invites auto-attach a Meet link even when the meeting
+    is in person, so the *physical* place (often only in the body, e.g. "en la
+    biblioteca") is the high-value signal and lives in `location`; the video URL
+    is kept secondary in `meet_link`.
+
+    eid is the Google Calendar event id — stable across updates — so an "updated"
+    invite edits the existing row instead of creating a duplicate.
+
+    visibility gates whether it shows on the schedule ("shown") or stays quiet
+    ("hidden") — set by the relevance gate (a school-wide assembly the teacher
+    has no role in is "hidden"; a meeting she's invited to is "shown").
+    dismissed_at is a soft-dismiss: the row stays findable, just leaves the
+    surface (and each dismiss also writes a PriorityFeedbackRecord noise signal).
+    """
+
+    __tablename__ = "events"
+
+    id = Column(String, primary_key=True, index=True)  # UUID
+    title = Column(String, nullable=False)
+    date = Column(String, nullable=False, index=True)  # YYYY-MM-DD (local)
+    start_time = Column(String, nullable=True)  # "HH:MM" 24h, or null if all-day
+    end_time = Column(String, nullable=True)  # "HH:MM" 24h, optional
+    location = Column(String, nullable=True)  # physical place — primary
+    meet_link = Column(String, nullable=True)  # video URL — secondary
+    attendees = Column(Text, nullable=True)  # JSON-encoded list[str]
+    # Who called/sent the meeting — the invite's organizer, or the email sender
+    # for email-sourced events. Lets Marimba answer "who sent this?" without
+    # searching the inbox.
+    organizer = Column(String, nullable=True)
+    source = Column(String, nullable=False)  # where it came from: email | voice | weekly | gcal
+    # id of the origin record in that source, so we can link back to it.
+    # For source="email" this is the Gmail message id; null for voice-added events.
+    source_ref = Column(String, nullable=True)
+    eid = Column(String, nullable=True, index=True)  # calendar event id — dedup/update key
+    visibility = Column(String, nullable=False, default="shown")  # shown | hidden
+    dismissed_at = Column(String, nullable=True)  # ISO-8601 UTC; soft-dismiss, never deleted
+    created_at = Column(String, nullable=False)  # ISO-8601 UTC
+    updated_at = Column(String, nullable=True)  # ISO-8601 UTC; set when an update edits the row
+
+
 def init_db() -> None:
     """Create all tables. Safe to call on every startup (no-op if they exist)."""
     Base.metadata.create_all(bind=engine)
@@ -254,6 +304,7 @@ def _ensure_columns() -> None:
         ("important_emails", "rfc822_message_id", "TEXT"),
         ("important_emails", "cc",                "TEXT"),
         ("important_emails", "dismissed_at",      "TEXT"),
+        ("events",           "organizer",         "TEXT"),
     ]
 
     inspector = inspect(engine)

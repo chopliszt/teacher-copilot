@@ -10,6 +10,7 @@ interface UseVoiceOptions {
 interface UseVoiceReturn {
   marimbaState: MarimbaState;
   toggleListening: () => void;
+  startListeningAbout: (focus: string) => void;
   discardRecording: () => void;
   isSupported: boolean;
   lastResponse: string | null;
@@ -40,6 +41,9 @@ export function useVoice({ onAction }: UseVoiceOptions = {}): UseVoiceReturn {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // One-line summary of an event the teacher tapped 🦊 on, sent with the next
+  // recording so Marimba knows which meeting "this" is. Cleared after sending.
+  const focusRef = useRef<string | null>(null);
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryClient = useQueryClient();
 
@@ -65,8 +69,12 @@ export function useVoice({ onAction }: UseVoiceOptions = {}): UseVoiceReturn {
       console.log(`[Marimba] Sending audio to backend (${(blob.size / 1024).toFixed(1)} KB, type: ${blob.type})`);
       setMarimbaState('thinking');
 
+      // Read & clear the focus so the next normal recording isn't tainted by it.
+      const focus = focusRef.current;
+      focusRef.current = null;
+
       try {
-        const result = await callVoice(blob);
+        const result = await callVoice(blob, focus ?? undefined);
         console.log('[Marimba] Response:', result);
 
         // Always show the text response — audio is a bonus, not required
@@ -185,6 +193,14 @@ export function useVoice({ onAction }: UseVoiceOptions = {}): UseVoiceReturn {
     }
   }, [handleAudioBlob]);
 
+  // Tap 🦊 on an event chip: stash the event summary, then start listening.
+  // The summary rides along with the recording (handleAudioBlob → callVoice).
+  const startListeningAbout = useCallback((focus: string) => {
+    if (marimbaState !== 'idle') return;
+    focusRef.current = focus;
+    startRecording();
+  }, [marimbaState, startRecording]);
+
   const discardRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       // Remove the onstop handler so it doesn't send the audio
@@ -198,6 +214,7 @@ export function useVoice({ onAction }: UseVoiceOptions = {}): UseVoiceReturn {
     }
     chunksRef.current = [];
     mediaRecorderRef.current = null;
+    focusRef.current = null;
     setMarimbaState('idle');
     console.log('[Marimba] Recording discarded');
   }, []);
@@ -206,6 +223,7 @@ export function useVoice({ onAction }: UseVoiceOptions = {}): UseVoiceReturn {
     if (marimbaState === 'listening') {
       stopRecording();
     } else if (marimbaState === 'idle') {
+      focusRef.current = null;   // a plain mic tap carries no event focus
       startRecording();
     }
     // While thinking or speaking, tapping mic is a no-op
@@ -222,5 +240,5 @@ export function useVoice({ onAction }: UseVoiceOptions = {}): UseVoiceReturn {
     };
   }, []);
 
-  return { marimbaState, toggleListening, discardRecording, isSupported, lastResponse };
+  return { marimbaState, toggleListening, startListeningAbout, discardRecording, isSupported, lastResponse };
 }

@@ -183,6 +183,60 @@ export async function fetchWeeklySchedule(): Promise<WeeklySchedule> {
   return WeeklyScheduleSchema.parse(response.data);
 }
 
+// ── Calendar events ──────────────────────────────────────────────────────────
+// A time-anchored commitment that is not a class (a meeting, a training). The
+// backend only returns events the relevance gate marked "shown". location is the
+// physical place (primary); meet_link is the video URL (secondary).
+export const EventSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  date: z.string(),                       // YYYY-MM-DD
+  start_time: z.string().nullable(),      // "HH:MM" 24h, or null if all-day
+  end_time: z.string().nullable(),
+  location: z.string().nullable(),        // physical place — primary
+  meet_link: z.string().nullable(),       // video URL — secondary
+  attendees: z.array(z.string()),
+  organizer: z.string().nullable(),       // who called/sent it
+  source: z.string(),                     // email | voice | weekly | gcal
+  source_ref: z.string().nullable(),
+  eid: z.string().nullable(),
+  visibility: z.string(),                 // shown | hidden
+  dismissed_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string().nullable(),
+});
+
+export const EventsResponseSchema = z.object({
+  date: z.string(),
+  events: z.array(EventSchema),
+  count: z.number(),
+});
+
+export type CalendarEvent = z.infer<typeof EventSchema>;
+export type EventsResponse = z.infer<typeof EventsResponseSchema>;
+
+export async function fetchEvents(date: string): Promise<EventsResponse> {
+  const response = await httpClient.get('/api/events', { params: { date } });
+  return EventsResponseSchema.parse(response.data);
+}
+
+export const UpcomingEventsResponseSchema = z.object({
+  after: z.string(),
+  days: z.number(),
+  events: z.array(EventSchema),
+  count: z.number(),
+});
+export type UpcomingEventsResponse = z.infer<typeof UpcomingEventsResponseSchema>;
+
+export async function fetchUpcomingEvents(after: string, days: number): Promise<UpcomingEventsResponse> {
+  const response = await httpClient.get('/api/events/upcoming', { params: { after, days } });
+  return UpcomingEventsResponseSchema.parse(response.data);
+}
+
+export async function dismissEvent(id: string): Promise<void> {
+  await httpClient.post(`/api/events/${id}/dismiss`);
+}
+
 export const ClassSessionSchema = z.object({
   id: z.string(),
   group: z.string(),
@@ -647,12 +701,15 @@ export async function fetchRecentLessonPlans(
   return response.data as RecentLessonPlan[];
 }
 
-export async function callVoice(audioBlob: Blob): Promise<VoiceResponse> {
+export async function callVoice(audioBlob: Blob, focus?: string): Promise<VoiceResponse> {
   const ext = audioBlob.type.includes('mp4') ? 'mp4' : 'webm';
   const formData = new FormData();
   formData.append('audio', audioBlob, `recording.${ext}`);
+  // When the teacher tapped 🦊 on an event chip, focus is a one-line summary of
+  // that event so Marimba knows which meeting "this" means.
+  if (focus) formData.append('focus', focus);
   // Pass FormData directly — axios detects it and sets multipart/form-data + boundary automatically
-  const response = await httpClient.post('/api/voice', formData, { 
+  const response = await httpClient.post('/api/voice', formData, {
     timeout: 30_000,
     headers: { 'Content-Type': 'multipart/form-data' }
   });

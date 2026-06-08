@@ -969,7 +969,8 @@ class TaskChatRequest(BaseModel):
 
 
 def _build_task_context(
-    *, source: str, title: str, email: Optional[ImportantEmailRecord]
+    *, source: str, title: str, email: Optional[ImportantEmailRecord],
+    event: Optional[Any] = None,
 ) -> str:
     """Assemble the natural-language task block the chat prompt embeds."""
     if source == "email" and email is not None:
@@ -980,6 +981,30 @@ def _build_task_context(
             f"Subject: {email.subject}\n"
             f"Body:\n{body}"
         )
+    if source == "event" and event is not None:
+        when = event.start_time or "time TBD"
+        if event.start_time and event.end_time:
+            when = f"{event.start_time}–{event.end_time}"
+        attendees = ""
+        if event.attendees:
+            try:
+                attendees = ", ".join(json.loads(event.attendees))
+            except Exception:
+                attendees = ""
+        lines = [
+            "Type: calendar event / meeting",
+            f"Title: {event.title}",
+            f"When: {event.date} {when}",
+            f"Where: {event.location or 'not stated in the invite'}",
+        ]
+        organizer = getattr(event, "organizer", None)
+        if organizer:
+            lines.append(f"Organized / sent by: {organizer}")
+        if attendees:
+            lines.append(f"Attendees: {attendees}")
+        if event.meet_link:
+            lines.append(f"Video link: {event.meet_link}")
+        return "\n".join(lines)
     label = {
         "user_task":   "manual task added by the teacher",
         "meeting":     "meeting on today's schedule",
@@ -998,6 +1023,11 @@ async def chat_task(
     """
     from prompts.task_chat import call_task_chat
     from context_builder import format_schedule_block
+
+    event_record = None
+    if body.source == "event":
+        import events as events_module
+        event_record = events_module.get_event(db, body.task_id)
 
     email_record: Optional[ImportantEmailRecord] = None
     if body.source == "email":
@@ -1025,7 +1055,7 @@ async def chat_task(
                 print(f"[Chat] Lazy backfill failed during chat: {e}")
 
     task_context = _build_task_context(
-        source=body.source, title=body.title, email=email_record
+        source=body.source, title=body.title, email=email_record, event=event_record
     )
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
 
@@ -1365,6 +1395,149 @@ async def delete_task(task_id: str, db: Session = Depends(get_db)) -> Dict[str, 
     db.delete(record)
     db.commit()
     return {"deleted": task_id}
+
+
+def _meeting_time_to_24h(part: str) -> Optional[str]:
+    """Parse one clock time ("1:30pm", "10:50am", "9:00") into 24h "HH:MM"."""
+    import re
+
+    match = re.match(r"\s*(\d{1,2}):(\d{2})\s*(am|pm)?", part.strip().lower())
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = match.group(2)
+    meridiem = match.group(3)
+    if meridiem == "pm" and hour != 12:
+        hour += 12
+    if meridiem == "am" and hour == 12:
+        hour = 0
+    return f"{hour:02d}:{minute}"
+
+
+def _parse_meeting_time(time_str: str) -> tuple[Optional[str], Optional[str]]:
+    """
+    Split a weekly-meeting time string into (start, end) 24h strings.
+    "1:30pm - 2:50pm" → ("13:30", "14:50"); "10:50am" → ("10:50", None);
+    unparseable/empty → (None, None). Best-effort — am/pm only on one side is
+    left as-is rather than guessed.
+    """
+    import re
+
+    if not time_str:
+        return (None, None)
+    parts = re.split(r"[-–—]", time_str)
+    start = _meeting_time_to_24h(parts[0])
+    end = _meeting_time_to_24h(parts[1]) if len(parts) > 1 else None
+    return (start, end)
+
+
+def _reconcile_weekly_events(db: Session, target_date: str) -> None:
+    """
+    Materialize today's weekly-newsletter meetings as EventRecords so they share
+    the timeline (and dedup) with email/voice events. Weekly meetings carry only
+    a rotation `schedule_day` (1–6), not a date — so we map them onto TODAY when
+    their schedule_day matches the current one. Idempotent: re-runs each read but
+    only creates missing rows (update_if_exists=False), so a dismissed weekly
+    meeting stays gone.
+    """
+    import events as events_module
+
+    weekly_record = db.get(WeeklyScheduleRecord, "current")
+    if not weekly_record:
+        return
+    try:
+        weekly_data = json.loads(weekly_record.data)
+    except Exception:
+        return
+
+    today_schedule_day = get_current_schedule_day()
+    for meeting in weekly_data.get("meetings", []):
+        if meeting.get("schedule_day") != today_schedule_day:
+            continue
+        title = (meeting.get("description") or "").strip()
+        if not title:
+            continue
+        start_time, end_time = _parse_meeting_time(meeting.get("time") or "")
+        events_module.create_or_update_event(
+            db,
+            title=title,
+            date=target_date,
+            start_time=start_time,
+            end_time=end_time,
+            location=(meeting.get("location") or None),
+            source="weekly",
+            visibility="shown",
+            update_if_exists=False,
+        )
+
+
+@app.get("/api/events")
+async def list_events(
+    date: Optional[str] = None,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Shown, not-dismissed calendar events/meetings for one day (default today).
+
+    These are the events that earned a place on the schedule timeline — the
+    relevance gate marked them visibility="shown". Hidden and dismissed events
+    are excluded here but stay in the DB (still findable by Marimba).
+    """
+    import events as events_module
+    from datetime import date as date_class
+
+    target_date = date or date_class.today().isoformat()
+    # Fold today's weekly-newsletter meetings onto the timeline (they only map to
+    # a date for *today*, via the current rotation day).
+    if target_date == date_class.today().isoformat():
+        _reconcile_weekly_events(db, target_date)
+    records = events_module.list_events_for_day(db, target_date)
+    return {
+        "date": target_date,
+        "events": [events_module.event_to_dict(record) for record in records],
+        "count": len(records),
+    }
+
+
+@app.get("/api/events/upcoming")
+async def list_upcoming_events_endpoint(
+    after: Optional[str] = None,
+    days: int = 2,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Shown, not-dismissed events in the next `days` days — the "Coming up" peek.
+    Strictly after `after` (default today). Note: weekly-newsletter meetings only
+    map onto today (no future date), so this currently surfaces email/voice and
+    calendar-dated future events; weekly future meetings are a later follow-up.
+    """
+    import events as events_module
+    from datetime import date as date_class
+
+    after_date = after or date_class.today().isoformat()
+    records = events_module.list_upcoming_events(db, after_date, days)
+    return {
+        "after": after_date,
+        "days": days,
+        "events": [events_module.event_to_dict(record) for record in records],
+        "count": len(records),
+    }
+
+
+@app.post("/api/events/{event_id}/dismiss")
+async def dismiss_event_endpoint(
+    event_id: str, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    The quiet × on an event row: soft-dismiss it (it leaves the timeline but
+    stays findable) and log a 'noise' relevance signal for future eval/training.
+    """
+    import events as events_module
+
+    dismissed = events_module.dismiss_event(db, event_id)
+    if dismissed is None:
+        return {"error": "Event not found"}
+    return {"dismissed": event_id}
 
 
 class PriorityFeedbackRequest(BaseModel):
@@ -2016,7 +2189,13 @@ def _build_voice_context(
             )
         sessions_str = "\n".join(parts)
 
+    # Absolute date so Marimba can resolve "tomorrow"/"Friday" into a concrete
+    # YYYY-MM-DD for add_event (the schedule block only has TODAY/NEXT markers,
+    # not the calendar date).
+    today_str = _get_current_time().strftime("%Y-%m-%d (%A)")
+
     return (
+        f"Today's date: {today_str}\n\n"
         f"{schedule_block}\n\n"
         f"Pending tasks:\n{tasks_str}"
         f"{sessions_str}"
@@ -2080,6 +2259,7 @@ def _build_voice_history(
 @app.post("/api/voice")
 async def handle_voice(
     audio: UploadFile = File(...),
+    focus: Optional[str] = Form(default=None),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
@@ -2183,6 +2363,11 @@ async def handle_voice(
             schedule_data, all_tasks, weekly_data, session_notes, all_groups
         )
 
+        # The teacher tapped 🦊 on a specific event chip — surface it so Marimba
+        # knows which meeting "this" refers to without the teacher repeating it.
+        if focus:
+            context += f"\n\nThe teacher is asking about this event:\n{focus}"
+
         # Short-term memory: replay the last few minutes of voice turns so
         # follow-ups ("yes, log it") keep the group/intent from the prior turn.
         history = _build_voice_history(db)
@@ -2215,6 +2400,27 @@ async def handle_voice(
                 )
                 db.add(record)
                 db.commit()
+
+        # add_event: create a calendar event/meeting on the teacher's schedule.
+        # Marimba resolves the absolute date from "Today's date" in the context;
+        # we persist via the same events helper the email path uses (so dedup by
+        # date+title applies). source="voice" — always shown (she created it).
+        elif action and action.get("type") == "add_event":
+            import events as events_mod
+
+            ev_title = (action.get("title") or "").strip()
+            ev_date = (action.get("date") or "").strip()
+            if ev_title and ev_date:
+                events_mod.create_or_update_event(
+                    db,
+                    title=ev_title,
+                    date=ev_date,
+                    start_time=(action.get("start_time") or None),
+                    end_time=(action.get("end_time") or None),
+                    location=(action.get("location") or None),
+                    source="voice",
+                    visibility="shown",
+                )
 
         # complete_task: clear a teacher task or dismiss an action-required
         # email. The id was shown to Marimba in the context's task list; we
