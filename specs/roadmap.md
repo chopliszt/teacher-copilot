@@ -8,13 +8,40 @@ before adding a phase (a built feature is clutter — YAGNI).
 
 ---
 
-## Phase 1 — Real-world validation (does it actually work?)
+## Phase 1 — Real-world validation (is it actually earning its place?)
 Not a feature — the teacher uses the app daily and collects concrete scenarios where it
-works and where it fails. Each failure becomes a fixture for evals + prompt fixes.
-This is the lens that feeds every phase below.
-- **First bug to chase:** a manually-added task from ~a week ago still never reaches
-  Top 3 — by now it should. Find the scoring/surfacing bug.
+works and where it fails. Each failure becomes a fixture for evals + prompt fixes. This is
+the lens that feeds every phase below.
+
+**The honest test of this phase:** is the app *replacing* manual work, or am I doing the
+job twice — once by hand, once in the app? Anything that creates double work is a failure to
+fix or cut, not a feature to keep (KISS / YAGNI). For each surface, ask: does this reduce a
+decision, or just display one?
+
+- **First bug to chase — stale tasks never escalate.** A manually-added task from ~a week
+  ago ("enviar artículo a José Daniel") still never reaches Top 3 — by now it should.
+  *Root cause (confirmed in code):* escalation is split, and the live path doesn't enforce
+  it. The deterministic Python staleness boost (`_calculate_priority_score`: +150 at ≥7d,
+  +80 at ≥4d) only runs in **fallback** mode (no API key). In production the **LLM owns
+  ranking** and is given only a soft `waiting=Nd` hint in the prompt (`context_builder.py`)
+  that it is free to ignore — so old tasks silently rot. **Decision to make:** move
+  escalation to a deterministic **Python age-floor that applies in both paths** — Python
+  guarantees a week-old task a Top-3 slot (or force-escalates its priority *before* the pool
+  reaches Mistral); the LLM only ranks *within* those floors. A high-consequence guarantee
+  shouldn't depend on the model's mood — floors are policy, not vibes.
+- **See the context before starting.** A Top-3 card is too truncated to act on. If an email
+  is behind an item, I should be able to read it *in the drawer* before I start — not go hunt
+  for it in Gmail. The body is already fetchable (`/api/tasks/.../chat` lazy-backfill);
+  surface it in the Top-3 drawer. (Pairs with Phase 2's "email is the context".)
 - Keep a running list of "the model misread my intent" cases (see Prompt-quality track).
+
+### Questions to revisit with the teacher (don't assume — ask)
+Validation isn't only bug-hunting; it's periodically asking whether the app should get
+*simpler*, not just more capable. Recurring questions worth surfacing:
+- Which surface did I trust enough this week to *not* double-check? Which did I bypass?
+- What did I end up doing manually anyway — and why didn't the app catch it?
+- What's on screen that I never act on? (Candidate to cut.)
+- Improve vs. simplify: is the next move adding a capability, or removing friction?
 
 ## Phase 2 — Real meeting scheduling (drawer + voice → Google Calendar)
 Today `add_event` only adds an event *inside the app*. `gcalendar.py::create_event()`
@@ -38,9 +65,10 @@ this is mostly prompt wiring.
   *why* something's wrong).
 
 ## Phase 4 — Act on a task now (don't wait for Top 3)
-A one-tap "work on this" on manually-added tasks that opens the same drawer/act flow Top 3
-uses. ADHD: if I want to do it now, I shouldn't have to wait for the ranker to surface it.
-(Small — could pull forward if Phase 1 makes it urgent.)
+A one-tap "work on this" that opens the same drawer/act flow Top 3 uses — on **manually-added
+tasks *and* action-required emails**, not only items the ranker chose to surface. ADHD: if I
+want to do something now, I shouldn't have to wait for the model to select it. Anything
+actionable should be directly workable. (Small — could pull forward if Phase 1 makes it urgent.)
 
 ## Phase 5 — Email reply tracking ("you never heard back")
 No reply in 7 days → surfaces in Top 3 as "Waiting on reply from X — sent 5 days ago."
@@ -53,10 +81,27 @@ Useful, not urgent. Persist *every* triaged email (incl. `ignore`) ~14 days in a
 the anxiety of trusting the filter — nothing is ever truly lost. (Learning-from-corrections
 is a later, separate slice — mirrors Phase 3.)
 
+## Phase 7 — Answer feedback ("was this right?")
+A lightweight thumbs-up / thumbs-down on Marimba's voice & chat answers (à la ChatGPT), so I
+can mark when a reply was correct or off. **Distinct from Phase 3:** that tunes Top-3
+*ranking*; this is signal on *answer quality* — voice reasoning, drafts, summaries. Stored
+per interaction; feeds the eval set and, later, prompt fixes. One tap, zero friction,
+ADHD-safe — no mandatory comment box.
+
 ## Last — Toddle push
 Important, but **only after the basics above are solid.** One "Push to Toddle" button turns
 an agreed lesson + assignment into real Toddle records. Real API work + complexity — don't
 take it on while core surfaces still need tuning.
+
+---
+
+## Small cleanups (do anytime — low risk, removes clutter)
+- **Remove the unused theme switcher.** The `<select>` in `MarimbaGreeting.tsx` (+ the
+  `[data-theme="ocean"|"forest"]` overrides in `index.css`) swaps palettes — never used; the
+  default stone/amber is the only one wanted. Delete the control and the alt-theme CSS.
+  **Keep `DESIGN.md` and the design principles untouched — those stay.** One fewer decision
+  on screen (ADHD-first).
+- **Rename the browser tab** `TeacherPilot` → `Marimba` (`frontend/index.html` `<title>`).
 
 ---
 
@@ -77,6 +122,12 @@ Triage + voice eval scripts already call the real production functions but run m
 Wire them as a CI gate so a prompt regression can't ship silently. Validation failures
 (Phase 1) become new eval cases. *Open question to revisit: can it also learn passively
 from everyday use, not only from hand-picked examples?*
+- **Experiment — triage on Mistral Large vs Small.** Triage runs on Small today. Run the
+  existing harness (`run_triage_evals.py`) against **Large** and compare scores head-to-head
+  before deciding anything — the model-split rule is *let the evals decide*, not cost or
+  vibes (see `tech-stack.md`). This is a **plain Large-vs-Small** comparison: a prior
+  *reasoning-mode* triage test already regressed vs Small and was rejected, so don't redo
+  that — measure straight, then keep Small unless Large clears the bar with real margin.
 
 ---
 

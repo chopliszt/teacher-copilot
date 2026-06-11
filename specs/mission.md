@@ -71,6 +71,8 @@ noise and it doesn't earn a place on screen.
 - The surface stays **quiet** — three things, not thirty — even on a heavy week.
 - The teacher trusts the filter enough to *not* double-check everything, because
   recovery is always possible (nothing important is ever truly lost).
+- The app **replaces** manual work instead of duplicating it — the teacher is not doing
+  the same task by hand *and* in the app. Double work means the surface failed its job.
 
 ## Principles that govern decisions
 
@@ -86,12 +88,12 @@ noise and it doesn't earn a place on screen.
    phase on the roadmap that the code already shipped. Check the code before adding
    work — redundant phases are themselves a form of clutter, the very thing
    ADHD-first exists to prevent.
-2. **Filter at the source, not on screen.** Clutter is a triage problem solved
+4. **Filter at the source, not on screen.** Clutter is a triage problem solved
    upstream by the AI — never a layout problem solved by scrolling.
-3. **Principle-first prompts, not brittle rules.** Tell the model the underlying
+5. **Principle-first prompts, not brittle rules.** Tell the model the underlying
    intent and let it reason; don't encode literal phrase-matching. (See `CLAUDE.md`.)
-4. **Graceful degradation, always.** Every AI call is gated behind a key and falls
+6. **Graceful degradation, always.** Every AI call is gated behind a key and falls
    back silently. No key, no crash — the app still works.
-5. **Names say what they are.** The teacher is also a learner and a developer; code,
+7. **Names say what they are.** The teacher is also a learner and a developer; code,
    columns, and UI labels read plainly, never in invented shorthand.
-6. **Quiet Premium.** Stone and amber, low opacity, whisper not shout. (See `DESIGN.md`.)
+8. **Quiet Premium.** Stone and amber, low opacity, whisper not shout. (See `DESIGN.md`.)
