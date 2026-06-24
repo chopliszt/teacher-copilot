@@ -153,9 +153,17 @@ async def lifespan(app: FastAPI):
         init_db()
     except Exception as e:
         msg = str(e)
-        if "could not translate host name" in msg or "nodename nor servname" in msg:
+        if "ENOTFOUND" in msg or "tenant/user" in msg and "not found" in msg:
+            print(
+                "\n[DB] ❌ Supabase project is paused.\n"
+                "     → Go to https://supabase.com/dashboard and resume your project.\n"
+                "     → Then restart the server.\n"
+            )
+        elif "could not translate host name" in msg or "nodename nor servname" in msg:
             print("\n[DB] ❌ Cannot reach Supabase — check your internet connection.\n")
-        raise
+        else:
+            print(f"\n[DB] ❌ Database connection failed: {msg}\n")
+        raise SystemExit(1)
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
@@ -616,7 +624,17 @@ async def get_priorities(db: Session = Depends(get_db)) -> Dict[str, Any]:
             ).scalars().all()
         }
 
-        suppressed = noise_titles | skip_titles
+        done_titles = {
+            row.task_title.strip().lower()
+            for row in db.execute(
+                sql_select(PriorityFeedbackRecord).where(
+                    PriorityFeedbackRecord.rating == "relevant",
+                    PriorityFeedbackRecord.created_at >= skip_cutoff,
+                )
+            ).scalars().all()
+        }
+
+        suppressed = noise_titles | skip_titles | done_titles
         if suppressed:
             all_tasks = [
                 t for t in all_tasks

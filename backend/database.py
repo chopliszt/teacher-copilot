@@ -19,7 +19,7 @@ if DATABASE_URL.startswith("postgresql") and "sslmode" not in DATABASE_URL:
     DATABASE_URL += "?sslmode=require"
 
 if DATABASE_URL.startswith("postgresql"):
-    engine = create_engine(DATABASE_URL)
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
 else:
     # check_same_thread is SQLite-only
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
